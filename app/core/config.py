@@ -1,4 +1,6 @@
+# app/core/config.py
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     # MongoDB Atlas
@@ -7,8 +9,8 @@ class Settings(BaseSettings):
     
     # Z-API
     zapi_instance_id: str
-    zapi_token: str  # Token da instância (URL)
-    zapi_client_token: str  # Client-Token (Header)
+    zapi_token: str
+    zapi_client_token: str
     zapi_url: str = "https://api.z-api.io"
     
     # WhatsApp Config
@@ -23,5 +25,6 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        extra = "ignore"  # Ignora campos extras no .env
 
 settings = Settings()
