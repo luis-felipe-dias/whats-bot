@@ -9,7 +9,7 @@ def main():
         print("❌ Execute este script na pasta raiz do projeto!")
         sys.exit(1)
     
-    cmd = [sys.executable, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    cmd = [sys.executable, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8001"]
     
     print(f"✅ Executando: {' '.join(cmd)}")
     subprocess.run(cmd)

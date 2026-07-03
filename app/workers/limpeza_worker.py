@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from app.core.database import db
+from bson import ObjectId
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class LimpezaWorker:
         while self.running:
             try:
                 # Executar limpeza a cada 30 minutos
-                await self._limpar_sessoes_antigas()
+                await self._limpar_sessoes_inativas()
                 await asyncio.sleep(1800)  # 30 minutos
                 
             except asyncio.CancelledError:
@@ -40,21 +41,24 @@ class LimpezaWorker:
                 logger.error(f"Erro no loop de limpeza: {str(e)}")
                 await asyncio.sleep(60)
     
-    async def _limpar_sessoes_antigas(self):
+    async def _limpar_sessoes_inativas(self):
         try:
-            # Sessões finalizadas há mais de 3 horas
-            limite = datetime.now() - timedelta(hours=3)
+            # Sessões inativas por mais de 4 horas (240 minutos)
+            limite_inativo = datetime.now() - timedelta(hours=4)
             
-            # Buscar sessões para limpar
-            cursor = db.db.sessoes.find({
-                "status": {"$in": ["finalizada", "cancelada"]},
-                "data_fim": {"$lt": limite}
-            })
+            # Buscar sessões inativas (não finalizadas)
+            sessoes_inativas = await db.db.sessoes.find({
+                "status": {"$in": ["ativa", "humano", "fila_humana"]},
+                "ultima_interacao": {"$lt": limite_inativo}
+            }).to_list(length=None)
             
-            sessoes = await cursor.to_list(length=None)
+            logger.info(f"🔍 Encontradas {len(sessoes_inativas)} sessões inativas para limpeza")
             
-            for sessao in sessoes:
+            for sessao in sessoes_inativas:
                 sessao_id = str(sessao["_id"])
+                contato_id = sessao.get("contato_id")
+                
+                logger.info(f"🗑️ Removendo sessão inativa: {sessao_id} - Última interação: {sessao.get('ultima_interacao')}")
                 
                 # Remover mensagens da sessão
                 await db.db.mensagens.delete_many({"sessao_id": sessao_id})
@@ -65,18 +69,32 @@ class LimpezaWorker:
                 # Remover da fila humana
                 await db.db.fila_humana.delete_many({"sessao_id": sessao_id})
                 
+                # Atualizar contato (resetar contagem)
+                if contato_id:
+                    await db.db.contatos.update_one(
+                        {"_id": ObjectId(contato_id)},
+                        {"$set": {"ultima_interacao": datetime.now()}}
+                    )
+                
                 # Remover a sessão
                 await db.db.sessoes.delete_one({"_id": sessao["_id"]})
                 
-                logger.info(f"🗑️ Sessão {sessao_id} removida pela limpeza automática")
+                logger.info(f"✅ Sessão {sessao_id} removida pela limpeza automática")
             
-            # Remover mensagens órfãs (sessões que não existem mais)
-            sessoes_ativas = await db.db.sessoes.find({}, {"_id": 1}).to_list(length=None)
-            sessoes_ids = [str(s["_id"]) for s in sessoes_ativas]
+            # Também remover sessões finalizadas há mais de 24 horas
+            limite_finalizado = datetime.now() - timedelta(hours=24)
+            sessoes_finalizadas = await db.db.sessoes.find({
+                "status": "finalizada",
+                "data_fim": {"$lt": limite_finalizado}
+            }).to_list(length=None)
             
-            resultado = await db.db.mensagens.delete_many({"sessao_id": {"$nin": sessoes_ids}})
-            if resultado.deleted_count > 0:
-                logger.info(f"🗑️ {resultado.deleted_count} mensagens órfãs removidas")
+            for sessao in sessoes_finalizadas:
+                sessao_id = str(sessao["_id"])
+                await db.db.mensagens.delete_many({"sessao_id": sessao_id})
+                await db.db.fila_envio.delete_many({"sessao_id": sessao_id})
+                await db.db.fila_humana.delete_many({"sessao_id": sessao_id})
+                await db.db.sessoes.delete_one({"_id": sessao["_id"]})
+                logger.info(f"🗑️ Sessão finalizada removida: {sessao_id}")
                 
         except Exception as e:
             logger.error(f"Erro na limpeza: {str(e)}")
@@ -85,10 +103,8 @@ class LimpezaWorker:
 _limpeza_worker = LimpezaWorker()
 
 async def start_limpeza_worker():
-    """Inicia o worker de limpeza"""
     await _limpeza_worker.start()
     return _limpeza_worker.task
 
 async def stop_limpeza_worker():
-    """Para o worker de limpeza"""
     await _limpeza_worker.stop()

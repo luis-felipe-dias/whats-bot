@@ -3,6 +3,7 @@ import asyncio
 import random
 from datetime import datetime
 from typing import Optional
+from bson import ObjectId
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
 import logging
@@ -18,7 +19,7 @@ class EnvioWorker:
     async def start(self):
         self.running = True
         self.task = asyncio.create_task(self._worker_loop())
-        logger.info("✅ Envio worker iniciado")
+        logger.info("Envio worker iniciado")
         
     async def stop(self):
         self.running = False
@@ -28,31 +29,27 @@ class EnvioWorker:
                 await self.task
             except asyncio.CancelledError:
                 pass
-        logger.info("🛑 Envio worker parado")
+        logger.info("Envio worker parado")
         
     async def _worker_loop(self):
         ultimo_envio_por_contato = {}
         
         while self.running:
             try:
-                # Buscar próximas mensagens na fila
                 mensagens = await self._get_pending_messages()
                 
                 for mensagem in mensagens:
-                    # Verificar rate limit por contato
                     contato_id = str(mensagem["contato_id"])
                     now = datetime.now()
                     
                     if contato_id in ultimo_envio_por_contato:
                         diff = (now - ultimo_envio_por_contato[contato_id]).total_seconds()
-                        if diff < 2:  # 2 segundos mínimo por contato
+                        if diff < 2:
                             continue
                     
-                    # Delay aleatório para evitar bloqueio
                     delay = random.uniform(1, 3)
                     await asyncio.sleep(delay)
                     
-                    # Tentar enviar
                     sucesso = await self._enviar_com_retry(mensagem)
                     
                     if sucesso:
@@ -76,26 +73,53 @@ class EnvioWorker:
     async def _enviar_com_retry(self, mensagem: dict, max_retries: int = 3):
         for tentativa in range(max_retries):
             try:
-                # Buscar contato
-                contato = await db.db.contatos.find_one({"_id": mensagem["contato_id"]})
+                contato_id = mensagem.get("contato_id")
+                
+                if contato_id and hasattr(contato_id, 'binary'):
+                    contato_id = str(contato_id)
+                
+                logger.info(f"Buscando contato com ID: {contato_id}")
+                
+                contato = await db.db.contatos.find_one({"_id": contato_id})
+                
+                if not contato and contato_id:
+                    try:
+                        contato = await db.db.contatos.find_one({"_id": ObjectId(contato_id)})
+                    except:
+                        pass
                 
                 if not contato:
-                    logger.error(f"Contato não encontrado: {mensagem['contato_id']}")
+                    logger.error(f"Contato nao encontrado: {contato_id}")
                     return False
                 
-                # Enviar via Z-API
-                sucesso = await self.whatsapp_api.send_text(
-                    telefone=contato["telefone"],
-                    texto=mensagem["conteudo"]
-                )
+                texto = mensagem["conteudo"]
+                botoes = mensagem.get("botoes", [])
+                
+                logger.info(f"Enviando para: {contato['telefone']}")
+                logger.info(f"Texto: {texto[:50]}...")
+                logger.info(f"Botoes: {botoes}")
+                
+                # Enviar com botões se houver
+                if botoes and len(botoes) > 0:
+                    sucesso = await self.whatsapp_api.send_buttons(
+                        telefone=contato["telefone"],
+                        texto=texto,
+                        buttons=botoes
+                    )
+                else:
+                    sucesso = await self.whatsapp_api.send_text(
+                        telefone=contato["telefone"],
+                        texto=texto
+                    )
                 
                 if sucesso:
+                    logger.info(f"Mensagem enviada com sucesso para {contato['telefone']}")
                     return True
                     
             except Exception as e:
                 logger.error(f"Erro no envio (tentativa {tentativa + 1}): {str(e)}")
                 
-            await asyncio.sleep(2 ** tentativa)  # Exponential backoff
+            await asyncio.sleep(2 ** tentativa)
             
         return False
     
@@ -111,14 +135,11 @@ class EnvioWorker:
             {"$set": {"status": "erro"}}
         )
 
-# Singleton instance
 _envio_worker = EnvioWorker()
 
 async def start_envio_worker():
-    """Inicia o worker de envio"""
     await _envio_worker.start()
     return _envio_worker.task
 
 async def stop_envio_worker():
-    """Para o worker de envio"""
     await _envio_worker.stop()

@@ -1,9 +1,11 @@
+# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 from app.core.database import connect_to_mongo, close_mongo_connection
-from app.api import webhook, sessoes, contatos, fila, estatisticas, admin
+from app.api import webhook, contatos, fila, estatisticas, admin
+from app.api.human import router as human_router
 from app.workers.envio_worker import start_envio_worker, stop_envio_worker
 from app.workers.limpeza_worker import start_limpeza_worker, stop_limpeza_worker
 from app.workers.contato_sync_worker import start_contato_sync_worker, stop_contato_sync_worker
@@ -24,20 +26,49 @@ async def lifespan(app: FastAPI):
     await stop_contato_sync_worker()
     await close_mongo_connection()
 
-app = FastAPI(title="YUP Customer Service", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(
+    title="YUP Customer Service Platform",
+    description="Plataforma de atendimento Peper 💙",
+    version="2.0.0",
+    lifespan=lifespan
+)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Rotas da API
 app.include_router(webhook.router, prefix="/bot/yup", tags=["Webhook"])
-app.include_router(sessoes.router, prefix="/bot/yup", tags=["Sessões"])
 app.include_router(contatos.router, prefix="/bot/yup", tags=["Contatos"])
 app.include_router(fila.router, prefix="/bot/yup", tags=["Filas"])
 app.include_router(estatisticas.router, prefix="/bot/yup", tags=["Estatísticas"])
-app.include_router(admin.router, prefix="/admin/yup", tags=["Admin"])
+app.include_router(admin.router, prefix="/admin", tags=["Administrativo"])
+app.include_router(human_router, prefix="/human", tags=["Atendimento Humano"])
 
 @app.get("/")
 async def root():
-    return {"platform": "YUP Customer Service", "assistant": "Peper 💙", "status": "online"}
+    return {
+        "platform": "YUP Customer Service",
+        "assistant": "Peper 💙",
+        "version": "2.0.0",
+        "status": "online"
+    }
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    from app.core.database import db
+    try:
+        await db.db.command('ping')
+        mongodb_status = "healthy"
+    except:
+        mongodb_status = "unhealthy"
+    
+    return {
+        "status": "healthy",
+        "mongodb": mongodb_status,
+        "workers": "running"
+    }
