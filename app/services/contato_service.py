@@ -1,6 +1,7 @@
 # app/services/contato_service.py
 from app.core.database import db
-from datetime import datetime
+from datetime import datetime, timezone, timedelta, timezone, timezone
+from app.core.config import TIMEZONE
 from bson import ObjectId
 import logging
 
@@ -24,9 +25,9 @@ class ContatoService:
                     "telefone": telefone,
                     "nome": nome if nome else telefone,
                     "nome_personalizado": bool(nome),  # Se veio nome, marca como personalizado
-                    "data_criacao": datetime.now(),
-                    "data_atualizacao": datetime.now(),
-                    "ultima_interacao": datetime.now(),
+                    "data_criacao": datetime.now(timezone.utc),
+                    "data_atualizacao": datetime.now(timezone.utc),
+                    "ultima_interacao": datetime.now(timezone.utc),
                     "tags": [],
                     "observacoes": ""
                 }
@@ -46,7 +47,7 @@ class ContatoService:
                 # Atualizar última interação
                 await db.db.contatos.update_one(
                     {"_id": contato["_id"]},
-                    {"$set": {"ultima_interacao": datetime.now()}}
+                    {"$set": {"ultima_interacao": datetime.now(timezone.utc)}}
                 )
             
             contato["id"] = str(contato["_id"])
@@ -67,7 +68,7 @@ class ContatoService:
                 {"$set": {
                     "nome": nome,
                     "nome_personalizado": True,
-                    "data_atualizacao": datetime.now()
+                    "data_atualizacao": datetime.now(timezone.utc)
                 }}
             )
             logger.info(f"✏️ Nome do contato atualizado: {contato_id} -> {nome}")
@@ -81,7 +82,7 @@ class ContatoService:
             if isinstance(contato_id, str):
                 contato_id = ObjectId(contato_id)
             
-            dados["data_atualizacao"] = datetime.now()
+            dados["data_atualizacao"] = datetime.now(timezone.utc)
             
             await db.db.contatos.update_one(
                 {"_id": contato_id},

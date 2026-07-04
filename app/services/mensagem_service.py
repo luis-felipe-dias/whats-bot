@@ -1,7 +1,7 @@
 # app/services/mensagem_service.py
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from bson import ObjectId
 
@@ -12,8 +12,10 @@ class MensagemService:
     def __init__(self):
         self.whatsapp_api = WhatsAppAPI()
     
+    def _now_utc(self):
+        return datetime.now(timezone.utc)
+    
     async def salvar_mensagem_recebida(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str = "texto"):
-        """Salva mensagem de texto recebida"""
         try:
             mensagem = {
                 "sessao_id": sessao_id,
@@ -22,7 +24,7 @@ class MensagemService:
                 "tipo": tipo,
                 "conteudo": conteudo,
                 "conteudo_original": conteudo_original,
-                "data_hora": datetime.now(),
+                "data_hora": self._now_utc(),
                 "respondida": False
             }
             result = await db.db.mensagens.insert_one(mensagem)
@@ -33,7 +35,6 @@ class MensagemService:
             raise
     
     async def salvar_mensagem_com_midia(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
-        """Salva mensagem com mídia (imagem, documento, áudio, vídeo)"""
         try:
             mensagem = {
                 "sessao_id": sessao_id,
@@ -42,19 +43,18 @@ class MensagemService:
                 "tipo": tipo,
                 "conteudo": conteudo,
                 "conteudo_original": conteudo_original,
-                "data_hora": datetime.now(),
+                "data_hora": self._now_utc(),
                 "file_name": file_name,
                 "mime_type": mime_type,
                 "caption": caption or "",
                 "respondida": False
             }
             
-            # Só adiciona file_url se não for None
             if file_url:
                 mensagem["file_url"] = file_url
             else:
                 mensagem["file_url"] = None
-                mensagem["status"] = "url_pendente"  # Marcar que precisa buscar URL depois
+                mensagem["status"] = "url_pendente"
             
             result = await db.db.mensagens.insert_one(mensagem)
             logger.info(f"📎 Mídia salva: {tipo} - {file_name}")
@@ -63,20 +63,7 @@ class MensagemService:
             logger.error(f"Erro salvar mídia: {str(e)}")
             raise
     
-    async def atualizar_url_midia(self, mensagem_id: str, file_url: str):
-        """Atualiza a URL de uma mídia pendente"""
-        try:
-            await db.db.mensagens.update_one(
-                {"_id": ObjectId(mensagem_id)},
-                {"$set": {"file_url": file_url, "status": "url_obtida"}}
-            )
-            logger.info(f"🔄 URL da mídia atualizada: {mensagem_id}")
-        except Exception as e:
-            logger.error(f"Erro ao atualizar URL: {str(e)}")
-            raise
-    
     async def enfileirar_resposta(self, contato_id: str, sessao_id: str, mensagem: str, botoes: list = None):
-        """Envia resposta para o cliente"""
         try:
             if isinstance(contato_id, ObjectId):
                 contato_id = str(contato_id)
@@ -92,7 +79,6 @@ class MensagemService:
                 sucesso = await self.whatsapp_api.send_text(contato["telefone"], mensagem)
             
             if sucesso:
-                # Registrar mensagem enviada
                 mensagem_enviada = {
                     "sessao_id": sessao_id,
                     "contato_id": contato_id,
@@ -100,7 +86,7 @@ class MensagemService:
                     "sender": "pepper",
                     "tipo": "texto",
                     "conteudo": mensagem,
-                    "data_hora": datetime.now(),
+                    "data_hora": self._now_utc(),
                     "respondida": True
                 }
                 await db.db.mensagens.insert_one(mensagem_enviada)

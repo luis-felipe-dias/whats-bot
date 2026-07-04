@@ -1,6 +1,7 @@
 # app/core/config.py
 from pydantic_settings import BaseSettings
 from typing import Optional
+import pytz
 
 class Settings(BaseSettings):
     # MongoDB Atlas
@@ -23,8 +24,14 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     
+    # Timezone
+    timezone: str = "America/Sao_Paulo"
+    
     class Config:
         env_file = ".env"
-        extra = "ignore"  # Ignora campos extras no .env
+        extra = "ignore"
 
 settings = Settings()
+
+# Criar objeto de timezone para usar em toda a aplicação
+TIMEZONE = pytz.timezone(settings.timezone)

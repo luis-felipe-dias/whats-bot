@@ -11,10 +11,10 @@ class StateMachine:
         estado_atual = sessao.get("estado_atual", "menu_principal")
         msg_clean = self._limpar_mensagem(mensagem)
         
-        logger.info(f"Estado: {estado_atual} | Msg: {mensagem} | Clean: {msg_clean}")
+        logger.info(f"Estado: {estado_atual} | Msg: {mensagem[:50]}")
         
         # ============================================
-        # COMANDO GLOBAL - CANCELAR
+        # CANCELAR
         # ============================================
         if "cancelar" in msg_clean or "cancel" in msg_clean:
             return "menu_principal", {
@@ -23,11 +23,11 @@ class StateMachine:
             }
         
         # ============================================
-        # SAUDAÇÃO INICIAL
+        # SAUDAÇÃO
         # ============================================
         if msg_clean in ["olá", "ola", "oi", "bomdia", "boatarde", "boanoite", "tudobem", "inicio", "menu", "start"]:
             return "menu_principal", {
-                "texto": "✨ *PEPER* - Assistente Virtual da Yup Papelaria ✨\n\nOlá! Como posso ajudar você hoje? 💙",
+                "texto": "‼️ *EM TESTE* - Agradecemos a compreensão de todos! 💙\n\nOi! Eu sou a Peper, assistente virtual da Yup.\n\nSabe aquele \"Yuuup!\" que uma criança diz quando encontra algo que a encanta? ✨ Foi essa alegria espontânea que inspirou o nome da nossa loja.\n\nQueremos que cada visita à Yup desperte esse mesmo sentimento: descobrir, criar, aprender e se divertir!\n\nAgora me conte: como posso ajudar você hoje? 😊",
                 "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
             }
         
@@ -72,17 +72,17 @@ class StateMachine:
         if estado_atual == "promocoes":
             if msg_clean in ["grupovip", "1"]:
                 return "menu_principal", {
-                    "texto": "🎁 *GRUPOS VIP YUP*\n\nParticipe dos nossos grupos VIP e receba ofertas exclusivas!\n\n📱 *Grupo 1:*\nhttps://chat.whatsapp.com/Cbh5Whh7pmU7jqMciI5bbs\n\n📱 *Grupo 2:*\nhttps://chat.whatsapp.com/I2ZMLyHoGM13hPHpWNcCjD\n\n🔗 Clique nos links acima para entrar! 💙",
+                    "texto": "🎁 *GRUPOS VIP YUP*\n\n📱 Grupo 1: https://chat.whatsapp.com/Cbh5Whh7pmU7jqMciI5bbs\n\n📱 Grupo 2: https://chat.whatsapp.com/I2ZMLyHoGM13hPHpWNcCjD\n\n🔗 Clique nos links acima para entrar! 💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["promoções", "promocoes", "ofertas", "2"]:
                 return "menu_principal", {
-                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\nConfira nossas ofertas especiais:\n\n👉 https://yupaper.com.br/categoria/promocoes_inverno/\n\nAproveite os descontos! 💙",
+                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\n👉 https://yupaper.com.br/categoria/promocoes_inverno/\n\nAproveite! 💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["site", "siteyup", "3"]:
                 return "menu_principal", {
-                    "texto": "🌐 *LOJA ONLINE YUP*\n\nAcesse nosso site e confira o catálogo completo:\n\n👉 https://yupaper.com.br/\n\n💙",
+                    "texto": "🌐 *LOJA ONLINE YUP*\n\n👉 https://yupaper.com.br/\n\n💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["voltar", "voltar"]:
@@ -101,11 +101,11 @@ class StateMachine:
         # ============================================
         if estado_atual == "servicos":
             if msg_clean in ["impressão", "impressao", "1"]:
-                return self._atendente("IMPRESSÃO", "servico")
+                return self._atendente("IMPRESSÃO", "impressao", "tecnico")
             elif msg_clean in ["encadernação", "encadernacao", "2"]:
-                return self._atendente("ENCADERNAÇÃO", "servico")
+                return self._atendente("ENCADERNAÇÃO", "encadernacao", "tecnico")
             elif msg_clean in ["plastificação", "plastificacao", "3"]:
-                return self._atendente("PLASTIFICAÇÃO", "servico")
+                return self._atendente("PLASTIFICAÇÃO", "plastificacao", "tecnico")
             elif msg_clean in ["voltar", "voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
@@ -122,18 +122,15 @@ class StateMachine:
         # ============================================
         if estado_atual == "atendimento":
             if msg_clean in ["atendente", "humano", "1"]:
-                return self._atendente("ATENDIMENTO HUMANO", "atendimento")
+                return self._atendente("ATENDIMENTO HUMANO", "atendente", "atendimento")
             elif msg_clean in ["meupedido", "pedido", "2"]:
-                return self._atendente("CONSULTA DE PEDIDO", "pedido")
+                return self._atendente("CONSULTA DE PEDIDO", "pedido", "financeiro")
             elif msg_clean in ["trocas", "devoluções", "devolucoes", "3"]:
-                return self._atendente("TROCA/DEVOLUÇÃO", "troca")
+                return self._atendente("TROCA/DEVOLUÇÃO", "trocas", "comercial")
             elif msg_clean in ["reclamações", "reclamacoes", "4"]:
-                return self._atendente("RECLAMAÇÃO", "reclamacao")
+                return self._atendente("RECLAMAÇÃO", "reclamacao", "ouvidoria")
             elif msg_clean in ["sugestões", "sugestoes", "5"]:
-                return "aguardando_sugestao", {
-                    "texto": "💡 *SUGESTÕES*\n\nDigite sua sugestão abaixo. Agradecemos sua opinião! 💙\n\nDigite CANCELAR para voltar.",
-                    "botoes": ["❌ CANCELAR"]
-                }
+                return self._atendente("SUGESTÃO", "sugestoes", "qualidade")
             elif msg_clean in ["voltar", "voltar", "6"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
@@ -151,17 +148,17 @@ class StateMachine:
         if estado_atual == "informacoes":
             if msg_clean in ["endereço", "endereco", "1"]:
                 return "menu_principal", {
-                    "texto": "📍 *ENDEREÇO YUP*\n\n📌 Av. Salime Nacif, 222 - Baixada\nManhuaçu - MG, 36902-051\n\n🗺️ *Google Maps:*\nhttps://maps.app.goo.gl/33EL5Z3HZkWJfkYVA\n\nClique no link para abrir o mapa! 💙",
+                    "texto": "📍 *ENDEREÇO YUP*\n\n📌 Av. Salime Nacif, 222 - Baixada\nManhuaçu - MG, 36902-051\n\n🗺️ https://maps.app.goo.gl/33EL5Z3HZkWJfkYVA\n\nClique no link! 💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["instagram", "2"]:
                 return "menu_principal", {
-                    "texto": "📷 *INSTAGRAM YUP*\n\nSiga-nos e fique por dentro das novidades!\n\n👉 https://www.instagram.com/papelaria.yup?igsh=dTVjZ3I4ZGRyY2Vn\n\n💙",
+                    "texto": "📷 *INSTAGRAM YUP*\n\n👉 https://www.instagram.com/papelaria.yup?igsh=dTVjZ3I4ZGRyY2Vn\n\n💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["site", "3"]:
                 return "menu_principal", {
-                    "texto": "🌐 *SITE YUP*\n\nAcesse nossa loja online:\n\n👉 https://yupaper.com.br/\n\n💙",
+                    "texto": "🌐 *SITE YUP*\n\n👉 https://yupaper.com.br/\n\n💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["voltar", "voltar"]:
@@ -176,16 +173,16 @@ class StateMachine:
                 }
         
         # ============================================
-        # TRABALHE CONOSCO - CORRIGIDO
+        # TRABALHE CONOSCO
         # ============================================
         if estado_atual == "trabalhe":
             if msg_clean in ["vervagas", "vagas", "1"]:
                 return "menu_principal", {
-                    "texto": "📢 *VAGAS DISPONÍVEIS - YUP PAPELARIA*\n\n👥 *OPORTUNIDADES:*\n\n• Atendente (comércio) - 1 vaga\n• Caixa - 1 vaga\n\n📧 Envie seu currículo em PDF para:\ncontato@grupoyup.com\n\n💙 Venha fazer parte do nosso time!",
+                    "texto": "📢 *VAGAS DISPONÍVEIS*\n\n• Atendente (comércio) - 1 vaga\n• Caixa - 1 vaga\n\n📧 contato@grupoyup.com\n\n💙",
                     "botoes": ["📄 ENVIAR CURRÍCULO", "◀️ VOLTAR"]
                 }
             elif "enviarcurriculo" in msg_clean or "curriculo" in msg_clean:
-                return self._atendente("ENVIO DE CURRÍCULO", "curriculo")
+                return self._atendente("ENVIO DE CURRÍCULO", "curriculo", "rh")
             elif msg_clean in ["voltar", "voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
@@ -198,22 +195,7 @@ class StateMachine:
                 }
         
         # ============================================
-        # SUGESTÕES
-        # ============================================
-        if estado_atual == "aguardando_sugestao":
-            if "cancelar" in msg_clean or "cancel" in msg_clean:
-                return "menu_principal", {
-                    "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
-                    "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
-                }
-            else:
-                return "menu_principal", {
-                    "texto": f"✅ *SUGESTÃO RECEBIDA!*\n\n\"{mensagem}\"\n\nMuito obrigado! Sua opinião nos ajuda a melhorar. 💙\n\n✨ Como posso ajudar você hoje?",
-                    "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
-                }
-        
-        # ============================================
-        # ATENDIMENTO HUMANO - Ignora mensagens
+        # ATENDIMENTO HUMANO
         # ============================================
         if sessao.get("status") == "humano":
             logger.info(f"⏸️ Cliente em atendimento humano - ignorando: {mensagem}")
@@ -223,7 +205,7 @@ class StateMachine:
         # DEFAULT
         # ============================================
         return "menu_principal", {
-            "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙\n\n1️⃣ PROMOÇÕES\n2️⃣ SERVIÇOS\n3️⃣ ATENDIMENTO\n4️⃣ INFORMAÇÕES\n5️⃣ TRABALHE CONOSCO\n\nDigite o número ou clique no botão desejado:",
+            "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙\n\n1️⃣ PROMOÇÕES\n2️⃣ SERVIÇOS\n3️⃣ ATENDIMENTO\n4️⃣ INFORMAÇÕES\n5️⃣ TRABALHE CONOSCO",
             "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
         }
     
@@ -233,15 +215,16 @@ class StateMachine:
         import unicodedata
         msg = mensagem.lower().strip()
         msg = unicodedata.normalize('NFKD', msg).encode('ASCII', 'ignore').decode('ASCII')
-        # Remove caracteres especiais, mantém letras e números
         msg = re.sub(r'[^a-z0-9]', '', msg)
         return msg
     
-    def _atendente(self, servico: str, tipo: str) -> Tuple[str, Dict]:
+    def _atendente(self, servico: str, tipo: str, setor: str) -> Tuple[str, Dict]:
         return "atendimento_humano", {
             "texto": f"🔄 *{servico}*\n\n📌 Seu pedido foi registrado! Um atendente da Yup Papelaria entrará em contato em breve.\n\n⚠️ Digite CANCELAR para voltar ao menu principal. 💙",
             "botoes": ["❌ CANCELAR"],
             "criar_fila_humana": True,
             "tipo_fila": tipo,
-            "status_humano": True
+            "status_humano": True,
+            "setor": setor,
+            "menu_anterior": tipo
         }

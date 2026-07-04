@@ -1,8 +1,7 @@
-# app/core/whatsapp_api.py
+# app/core/whatsapp_api.py - CORREÇÃO PARA GRUPOS
 import httpx
 from app.core.config import settings
 import logging
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -12,33 +11,52 @@ class WhatsAppAPI:
         self.instance_token = settings.zapi_token
         self.client_token = settings.zapi_client_token
         self.base_url = "https://api.z-api.io"
-        self.timeout = 60.0  # Timeout maior para mídias
+        self.timeout = 60.0
         
     async def send_text(self, telefone: str, texto: str) -> bool:
-        """Envia mensagem de texto"""
+        """Envia mensagem de texto (suporta grupos e individuais)"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            # Não limpar o telefone se for grupo (termina com -group)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+                logger.info(f"📤 Enviando para GRUPO: {telefone_clean}")
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+                logger.info(f"📤 Enviando para CONTATO: {telefone_clean}")
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-text"
             
-            payload = {"phone": telefone_clean, "message": texto}
-            headers = {'Client-Token': self.client_token, 'Content-Type': 'application/json'}
+            payload = {
+                "phone": telefone_clean,
+                "message": texto
+            }
+            
+            headers = {
+                'Client-Token': self.client_token,
+                'Content-Type': 'application/json'
+            }
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(url, json=payload, headers=headers)
+                
                 if response.status_code == 200:
-                    logger.info(f"✅ Texto enviado para {telefone_clean}")
+                    logger.info(f"✅ Mensagem enviada para {telefone_clean}")
                     return True
                 else:
-                    logger.error(f"❌ Erro texto: {response.status_code}")
+                    logger.error(f"❌ Erro: {response.status_code} - {response.text}")
                     return False
+                    
         except Exception as e:
-            logger.error(f"❌ Exceção texto: {str(e)}")
+            logger.error(f"❌ Exceção: {str(e)}")
             return False
     
     async def send_image(self, telefone: str, image_url: str, caption: str = "") -> bool:
-        """Envia uma imagem via URL"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-image"
             
             payload = {
@@ -54,16 +72,19 @@ class WhatsAppAPI:
                     logger.info(f"✅ Imagem enviada para {telefone_clean}")
                     return True
                 else:
-                    logger.error(f"❌ Erro imagem: {response.status_code} - {response.text}")
+                    logger.error(f"❌ Erro imagem: {response.status_code}")
                     return False
         except Exception as e:
             logger.error(f"❌ Exceção imagem: {str(e)}")
             return False
     
     async def send_document(self, telefone: str, document_url: str, filename: str = "documento.pdf", caption: str = "") -> bool:
-        """Envia um documento via URL"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-document"
             
             payload = {
@@ -87,9 +108,12 @@ class WhatsAppAPI:
             return False
     
     async def send_audio(self, telefone: str, audio_url: str) -> bool:
-        """Envia um áudio via URL"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-audio"
             
             payload = {
@@ -111,9 +135,12 @@ class WhatsAppAPI:
             return False
     
     async def send_video(self, telefone: str, video_url: str, caption: str = "") -> bool:
-        """Envia um vídeo via URL"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-video"
             
             payload = {
@@ -136,9 +163,12 @@ class WhatsAppAPI:
             return False
     
     async def send_interactive(self, telefone: str, texto: str, botoes: list) -> bool:
-        """Envia botões interativos"""
         try:
-            telefone_clean = self._clean_phone_number(telefone)
+            if telefone.endswith("-group"):
+                telefone_clean = telefone
+            else:
+                telefone_clean = self._clean_phone_number(telefone)
+            
             url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/send-button-list"
             
             buttons = []
