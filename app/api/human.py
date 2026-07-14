@@ -24,9 +24,6 @@ class MensagemMidiaRequest(BaseModel):
     nome_arquivo: Optional[str] = None
     atendente_nome: Optional[str] = "Atendente"
 
-# ============================================
-# LISTAR TODAS AS SESSÕES
-# ============================================
 @router.get("/sessoes")
 async def listar_todas_sessoes():
     try:
@@ -60,9 +57,6 @@ async def listar_todas_sessoes():
         logger.error(f"Erro ao listar sessões: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================
-# LISTAR SESSÕES ABERTAS
-# ============================================
 @router.get("/sessoes/abertas")
 async def get_sessoes_abertas():
     try:
@@ -73,9 +67,6 @@ async def get_sessoes_abertas():
         logger.error(f"Erro ao listar sessões abertas: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================
-# BUSCAR UMA SESSÃO ESPECÍFICA
-# ============================================
 @router.get("/sessoes/{session_id}")
 async def buscar_sessao(session_id: str):
     try:
@@ -90,9 +81,6 @@ async def buscar_sessao(session_id: str):
         logger.error(f"Erro ao buscar sessão: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================
-# HISTÓRICO DE MENSAGENS DA SESSÃO
-# ============================================
 @router.get("/sessoes/{session_id}/mensagens")
 async def get_sessao_mensagens(session_id: str):
     try:
@@ -111,7 +99,6 @@ async def enviar_mensagem_humana(session_id: str, request: MensagemRequest):
     """Envia uma mensagem de texto do atendente para o cliente"""
     try:
         sessao_service = SessaoService()
-        mensagem_service = MensagemService()
         
         # Buscar sessão
         sessao = await db.db.sessoes.find_one({"_id": ObjectId(session_id)})
@@ -123,22 +110,23 @@ async def enviar_mensagem_humana(session_id: str, request: MensagemRequest):
         if not contato:
             raise HTTPException(status_code=404, detail="Contato não encontrado")
         
-        # SALVAR MENSAGEM COMO ATENDENTE
+        # SALVAR MENSAGEM COMO ATENDENTE (NÃO como pepper!)
         mensagem_data = {
             "sessao_id": session_id,
             "contato_id": sessao["contato_id"],
             "direcao": "enviada",
-            "sender": "atendente",  # <--- CORRIGIDO: agora é atendente, não pepper
+            "sender": "atendente",  # <--- CORRIGIDO: agora é atendente
             "tipo": "texto",
             "conteudo": request.mensagem,
             "data_hora": datetime.now(),
             "respondida": True,
-            "atendente": request.atendente_nome
+            "atendente": request.atendente_nome,
+            "from_me": True  # <--- Adicionado para identificar que veio do sistema
         }
         await db.db.mensagens.insert_one(mensagem_data)
-        logger.info(f"📤 Mensagem do atendente salva: {request.mensagem[:50]}")
+        logger.info(f"📤 Mensagem do atendente salva via API: {request.mensagem[:50]}")
         
-        # Atualizar sessão
+        # Atualizar sessão - atendente respondeu
         await sessao_service.registrar_resposta_atendente(session_id)
         
         # Enviar para WhatsApp
@@ -209,10 +197,11 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
             "respondida": True,
             "atendente": request.atendente_nome,
             "file_url": request.midia_url,
-            "file_name": request.nome_arquivo
+            "file_name": request.nome_arquivo,
+            "from_me": True
         }
         await db.db.mensagens.insert_one(mensagem_data)
-        logger.info(f"📤 Mídia do atendente salva: {request.tipo_midia}")
+        logger.info(f"📤 Mídia do atendente salva via API: {request.tipo_midia}")
         
         await sessao_service.registrar_resposta_atendente(session_id)
         
@@ -224,9 +213,6 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
         logger.error(f"Erro ao enviar mídia: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================
-# FINALIZAR SESSÃO
-# ============================================
 @router.post("/sessoes/{session_id}/finalizar")
 async def finalizar_sessao(session_id: str):
     try:
@@ -237,9 +223,6 @@ async def finalizar_sessao(session_id: str):
         logger.error(f"Erro ao finalizar sessão: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ============================================
-# CANCELAR ATENDIMENTO
-# ============================================
 @router.post("/sessoes/{session_id}/cancelar")
 async def cancelar_atendimento(session_id: str):
     try:
@@ -270,7 +253,7 @@ async def cancelar_atendimento(session_id: str):
                 sessao_id=session_id,
                 mensagem=mensagem_confirmacao,
                 botoes=["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"],
-                sender="atendente"  # <--- Adicionado: mensagem de cancelamento vem do atendente
+                sender="atendente"
             )
         
         return {
