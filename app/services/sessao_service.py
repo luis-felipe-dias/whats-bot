@@ -133,17 +133,18 @@ class SessaoService:
             raise
     
     async def cancelar_atendimento_humano(self, sessao_id: str, menu_anterior: str = "menu_principal"):
+        """Cancela o atendimento humano e volta para o atendimento automático"""
         try:
             await self.atualizar_sessao(sessao_id, {
                 "status": "ativa",
-                "estado_atual": menu_anterior,
+                "estado_atual": "menu_principal",
                 "setor_responsavel": None,
                 "human_response_sent": False,
                 "aguardando_atendente": False,
                 "last_menu": None,
                 "menu_anterior": None
             })
-            logger.info(f"❌ Atendimento humano cancelado - Sessão resetada para: {menu_anterior}")
+            logger.info(f"❌ Atendimento humano cancelado - Sessão resetada para menu_principal")
         except Exception as e:
             logger.error(f"Erro ao cancelar atendimento humano: {str(e)}")
             raise

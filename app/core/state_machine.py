@@ -23,6 +23,22 @@ class StateMachine:
             }
         
         # ============================================
+        # VOLTAR - Comando global para voltar ao menu anterior
+        # ============================================
+        if mensagem == "◀️ VOLTAR" or msg_clean == "voltar":
+            # Se estiver em um submenu, volta para o menu principal
+            if estado_atual in ["promocoes", "servicos", "atendimento", "informacoes", "trabalhe"]:
+                return "menu_principal", {
+                    "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
+                    "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
+                }
+            # Se estiver no menu principal, mantém
+            return "menu_principal", {
+                "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
+                "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
+            }
+        
+        # ============================================
         # SAUDAÇÃO
         # ============================================
         if msg_clean in ["olá", "ola", "oi", "bomdia", "boatarde", "boanoite", "tudobem", "inicio", "menu", "start"]:
@@ -85,7 +101,7 @@ class StateMachine:
                     "texto": "🌐 *LOJA ONLINE YUP*\n\n👉 https://yupaper.com.br/\n\n💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
-            elif msg_clean in ["voltar", "voltar"]:
+            elif msg_clean in ["voltar", "◀️ voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
                     "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
@@ -106,7 +122,7 @@ class StateMachine:
                 return self._atendente("ENCADERNAÇÃO", "encadernacao", "tecnico")
             elif msg_clean in ["plastificação", "plastificacao", "3"]:
                 return self._atendente("PLASTIFICAÇÃO", "plastificacao", "tecnico")
-            elif msg_clean in ["voltar", "voltar"]:
+            elif msg_clean in ["voltar", "◀️ voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
                     "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
@@ -131,7 +147,7 @@ class StateMachine:
                 return self._atendente("RECLAMAÇÃO", "reclamacao", "ouvidoria")
             elif msg_clean in ["sugestões", "sugestoes", "5"]:
                 return self._atendente("SUGESTÃO", "sugestoes", "qualidade")
-            elif msg_clean in ["voltar", "voltar", "6"]:
+            elif msg_clean in ["voltar", "◀️ voltar", "6"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
                     "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
@@ -161,7 +177,7 @@ class StateMachine:
                     "texto": "🌐 *SITE YUP*\n\n👉 https://yupaper.com.br/\n\n💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
-            elif msg_clean in ["voltar", "voltar"]:
+            elif msg_clean in ["voltar", "◀️ voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
                     "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
@@ -183,7 +199,7 @@ class StateMachine:
                 }
             elif "enviarcurriculo" in msg_clean or "curriculo" in msg_clean:
                 return self._atendente("ENVIO DE CURRÍCULO", "curriculo", "rh")
-            elif msg_clean in ["voltar", "voltar"]:
+            elif msg_clean in ["voltar", "◀️ voltar"]:
                 return "menu_principal", {
                     "texto": "✨ *PEPER* - Assistente Virtual\n\nComo posso ajudar você hoje? 💙",
                     "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]

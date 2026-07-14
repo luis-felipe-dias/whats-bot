@@ -1,4 +1,4 @@
-# app/api/human.py - APIs de Atendimento Humano
+# app/api/human.py - CORREÇÃO PARA SENDER ATENDENTE
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -29,17 +29,14 @@ class MensagemMidiaRequest(BaseModel):
 # ============================================
 @router.get("/sessoes")
 async def listar_todas_sessoes():
-    """Lista todas as sessões com seus status"""
     try:
         sessao_service = SessaoService()
         sessoes = await db.db.sessoes.find().sort("data_inicio", -1).to_list(length=100)
         resultado = []
         for sessao in sessoes:
-            # Verificar se é grupo ou contato normal
             contato_id = sessao.get("contato_id")
             contato = None
             
-            # Se não for grupo, buscar contato
             if not sessao.get("is_group") and contato_id:
                 try:
                     contato = await db.db.contatos.find_one({"_id": ObjectId(contato_id)})
@@ -68,7 +65,6 @@ async def listar_todas_sessoes():
 # ============================================
 @router.get("/sessoes/abertas")
 async def get_sessoes_abertas():
-    """Retorna todas as sessões humanas em aberto"""
     try:
         sessao_service = SessaoService()
         sessions = await sessao_service.listar_sessoes_abertas()
@@ -82,7 +78,6 @@ async def get_sessoes_abertas():
 # ============================================
 @router.get("/sessoes/{session_id}")
 async def buscar_sessao(session_id: str):
-    """Busca uma sessão específica pelo ID"""
     try:
         sessao_service = SessaoService()
         sessao = await sessao_service.get_sessao_por_id(session_id)
@@ -100,7 +95,6 @@ async def buscar_sessao(session_id: str):
 # ============================================
 @router.get("/sessoes/{session_id}/mensagens")
 async def get_sessao_mensagens(session_id: str):
-    """Retorna o histórico de mensagens da sessão"""
     try:
         sessao_service = SessaoService()
         messages = await sessao_service.get_historico_sessao(session_id)
@@ -110,25 +104,60 @@ async def get_sessao_mensagens(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================
-# ENVIAR MENSAGEM DE TEXTO
+# ENVIAR MENSAGEM DE TEXTO - CORRIGIDO
 # ============================================
 @router.post("/sessoes/{session_id}/enviar")
 async def enviar_mensagem_humana(session_id: str, request: MensagemRequest):
     """Envia uma mensagem de texto do atendente para o cliente"""
     try:
         sessao_service = SessaoService()
-        result = await sessao_service.enviar_mensagem_humana(
-            session_id, 
-            request.mensagem, 
-            request.atendente_nome
-        )
-        return result
+        mensagem_service = MensagemService()
+        
+        # Buscar sessão
+        sessao = await db.db.sessoes.find_one({"_id": ObjectId(session_id)})
+        if not sessao:
+            raise HTTPException(status_code=404, detail="Sessão não encontrada")
+        
+        # Buscar contato
+        contato = await db.db.contatos.find_one({"_id": ObjectId(sessao["contato_id"])})
+        if not contato:
+            raise HTTPException(status_code=404, detail="Contato não encontrado")
+        
+        # SALVAR MENSAGEM COMO ATENDENTE
+        mensagem_data = {
+            "sessao_id": session_id,
+            "contato_id": sessao["contato_id"],
+            "direcao": "enviada",
+            "sender": "atendente",  # <--- CORRIGIDO: agora é atendente, não pepper
+            "tipo": "texto",
+            "conteudo": request.mensagem,
+            "data_hora": datetime.now(),
+            "respondida": True,
+            "atendente": request.atendente_nome
+        }
+        await db.db.mensagens.insert_one(mensagem_data)
+        logger.info(f"📤 Mensagem do atendente salva: {request.mensagem[:50]}")
+        
+        # Atualizar sessão
+        await sessao_service.registrar_resposta_atendente(session_id)
+        
+        # Enviar para WhatsApp
+        whatsapp = WhatsAppAPI()
+        sucesso = await whatsapp.send_text(contato["telefone"], request.mensagem)
+        
+        if sucesso:
+            logger.info(f"✅ Mensagem enviada para {contato['telefone']}")
+        else:
+            logger.error(f"❌ Falha ao enviar mensagem para {contato['telefone']}")
+        
+        return {"success": sucesso, "message": "Mensagem enviada" if sucesso else "Falha ao enviar"}
+        
     except Exception as e:
         logger.error(f"Erro ao enviar mensagem: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================
-# ENVIAR MÍDIA
+# ENVIAR MÍDIA - CORRIGIDO
 # ============================================
 @router.post("/sessoes/{session_id}/enviar-midia")
 async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
@@ -140,7 +169,6 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
         if not sessao:
             raise HTTPException(status_code=404, detail="Sessão não encontrada")
         
-        # Buscar contato ou usar group_id para grupos
         contato_telefone = None
         if sessao.get("is_group"):
             contato_telefone = sessao.get("group_id")
@@ -169,21 +197,22 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
         if not sucesso:
             return {"success": False, "message": "Falha ao enviar mídia"}
         
-        # Salvar mensagem no histórico
+        # SALVAR MENSAGEM COMO ATENDENTE
         mensagem_data = {
             "sessao_id": session_id,
             "contato_id": sessao["contato_id"],
             "direcao": "enviada",
-            "sender": "human",
+            "sender": "atendente",  # <--- CORRIGIDO: agora é atendente
             "tipo": request.tipo_midia,
             "conteudo": request.legenda or f"Mídia enviada: {request.tipo_midia}",
-            "data_hora": sessao_service._now_utc(),
+            "data_hora": datetime.now(),
             "respondida": True,
             "atendente": request.atendente_nome,
             "file_url": request.midia_url,
             "file_name": request.nome_arquivo
         }
         await db.db.mensagens.insert_one(mensagem_data)
+        logger.info(f"📤 Mídia do atendente salva: {request.tipo_midia}")
         
         await sessao_service.registrar_resposta_atendente(session_id)
         
@@ -200,7 +229,6 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
 # ============================================
 @router.post("/sessoes/{session_id}/finalizar")
 async def finalizar_sessao(session_id: str):
-    """Finaliza uma sessão manualmente"""
     try:
         sessao_service = SessaoService()
         await sessao_service.finalizar_sessao(session_id)
@@ -214,7 +242,6 @@ async def finalizar_sessao(session_id: str):
 # ============================================
 @router.post("/sessoes/{session_id}/cancelar")
 async def cancelar_atendimento(session_id: str):
-    """Cancela o atendimento humano de uma sessão"""
     try:
         sessao_service = SessaoService()
         mensagem_service = MensagemService()
@@ -227,10 +254,8 @@ async def cancelar_atendimento(session_id: str):
         
         await sessao_service.cancelar_atendimento_humano(session_id, menu_anterior)
         
-        # Enviar mensagem de confirmação
         mensagem_confirmacao = "✅ O atendente encerrou o atendimento humano. 💙\n\nVocê está de volta ao atendimento automático com a Peper.\n\nComo posso ajudar você hoje?"
         
-        # Buscar telefone do contato ou grupo
         telefone_destino = None
         if sessao.get("is_group"):
             telefone_destino = sessao.get("group_id")
@@ -244,7 +269,8 @@ async def cancelar_atendimento(session_id: str):
                 contato_id=sessao["contato_id"],
                 sessao_id=session_id,
                 mensagem=mensagem_confirmacao,
-                botoes=["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
+                botoes=["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"],
+                sender="atendente"  # <--- Adicionado: mensagem de cancelamento vem do atendente
             )
         
         return {
