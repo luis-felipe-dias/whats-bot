@@ -1,4 +1,4 @@
-# app/api/webhook.py
+# app/api/webhook.py - OTIMIZADO PARA ALTA PERFORMANCE
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from app.services.mensagem_service import MensagemService
@@ -9,15 +9,21 @@ from app.utils.helpers import now_utc
 from datetime import datetime, timedelta
 import logging
 import json
+import asyncio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# SEMÁFORO PARA CONTROLAR PROCESSAMENTO PARALELO
+# Permite até 50 processamentos simultâneos
+_semaphore = asyncio.Semaphore(50)
 
 @router.post("/webhook")
 async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
         
+        # Extrair dados básicos rapidamente
         from_me = body.get("fromMe", False)
         message_id = body.get("messageId")
         is_group = body.get("isGroup", False)
@@ -25,22 +31,20 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         chat_lid = body.get("chatLid")
         phone = body.get("phone")
         
+        # Determinar identificador
         if is_group:
             if phone and phone.endswith("-group"):
                 identificador = phone
                 telefone = phone
                 chat_lid = None
-                logger.info(f"📢 GRUPO: {identificador}")
             elif phone:
                 identificador = phone
                 telefone = phone
                 chat_lid = None
-                logger.info(f"📢 GRUPO (alternativo): {identificador}")
             else:
                 identificador = f"grupo_{chat_name or message_id}"
                 telefone = identificador
                 chat_lid = None
-                logger.info(f"📢 GRUPO (fallback): {identificador}")
         else:
             if chat_lid:
                 identificador = chat_lid
@@ -53,9 +57,8 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
                     telefone = '55' + telefone
             else:
                 telefone = identificador
-            
-            logger.info(f"👤 INDIVIDUAL: identificador={identificador}, telefone={telefone}")
         
+        # Extrair mensagem (apenas texto para validação rápida)
         mensagem = None
         tipo_mensagem = "texto"
         file_url = None
@@ -63,6 +66,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         mime_type = None
         caption = None
         
+        # Detectar tipo de conteúdo rapidamente
         if "image" in body:
             img = body["image"]
             file_url = img.get("imageUrl")
@@ -71,7 +75,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             file_name = f"imagem_{now_utc().strftime('%Y%m%d_%H%M%S')}.jpg"
             tipo_mensagem = "imagem"
             mensagem = caption or "📷 Imagem recebida"
-            logger.info(f"📷 IMAGEM: {file_url}")
         
         elif "document" in body:
             doc = body["document"]
@@ -81,7 +84,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             caption = doc.get("caption", "")
             tipo_mensagem = "documento"
             mensagem = caption or f"📎 Documento: {file_name}"
-            logger.info(f"📎 DOCUMENTO: {file_url}")
         
         elif "audio" in body:
             audio = body["audio"]
@@ -90,7 +92,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             mime_type = audio.get("mimeType", "audio/ogg")
             tipo_mensagem = "audio"
             mensagem = "🎤 Áudio recebido"
-            logger.info(f"🎤 ÁUDIO: {file_url}")
         
         elif "video" in body:
             video = body["video"]
@@ -99,7 +100,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             mime_type = video.get("mimeType", "video/mp4")
             tipo_mensagem = "video"
             mensagem = "📹 Vídeo recebido"
-            logger.info(f"📹 VÍDEO: {file_url}")
         
         elif "location" in body:
             loc = body["location"]
@@ -108,7 +108,6 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             tipo_mensagem = "localizacao"
             mensagem = f"📍 Localização: {lat}, {lng}"
             file_url = f"https://maps.google.com/?q={lat},{lng}"
-            logger.info(f"📍 LOCALIZAÇÃO: {lat}, {lng}")
         
         elif "contact" in body:
             contact = body["contact"]
@@ -116,17 +115,14 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             numero = contact.get("phone")
             tipo_mensagem = "contato"
             mensagem = f"📇 Contato: {nome} - {numero}"
-            logger.info(f"📇 CONTATO: {nome} - {numero}")
         
         elif "buttonsResponseMessage" in body:
             mensagem = body["buttonsResponseMessage"].get("message")
             tipo_mensagem = "botao"
-            logger.info(f"🔘 BOTÃO: {mensagem}")
         
         elif "listResponseMessage" in body:
             mensagem = body["listResponseMessage"].get("title")
             tipo_mensagem = "lista"
-            logger.info(f"📋 LISTA: {mensagem}")
         
         elif "text" in body:
             if isinstance(body["text"], dict):
@@ -134,28 +130,25 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             elif isinstance(body["text"], str):
                 mensagem = body["text"]
             tipo_mensagem = "texto"
-            logger.info(f"📝 TEXTO: {mensagem}")
         
         elif "buttonReply" in body:
             mensagem = body["buttonReply"].get("message") or body["buttonReply"].get("label")
             tipo_mensagem = "reply"
-            logger.info(f"🔘 REPLY: {mensagem}")
         
         if not mensagem and not file_url:
-            logger.info(f"⏭️ Mensagem sem conteúdo")
             return JSONResponse(status_code=200, content={"status": "ignored"})
         
+        # Verificação rápida de duplicata (apenas para mensagens com ID)
         if message_id:
             existing = await db.db.mensagens.find_one({"message_id": message_id})
             if existing:
-                logger.info(f"⏭️ Duplicata por message_id: {message_id}")
                 return JSONResponse(status_code=200, content={"status": "ignored", "reason": "duplicate"})
         
         sender = "cliente" if not from_me else "atendente"
-        logger.info(f"📱 [{sender}] {identificador} -> {mensagem[:50]}")
         
+        # ADICIONAR À FILA DE PROCESSAMENTO (NÃO BLOQUEAR)
         background_tasks.add_task(
-            process_webhook_message,
+            process_webhook_message_with_semaphore,
             chat_lid,
             telefone,
             identificador,
@@ -178,10 +171,15 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.error(f"❌ Erro webhook: {str(e)}")
         return JSONResponse(status_code=200, content={"status": "error"})
 
+async def process_webhook_message_with_semaphore(*args, **kwargs):
+    """Processa mensagem com controle de concorrência"""
+    async with _semaphore:
+        await process_webhook_message(*args, **kwargs)
+
 async def process_webhook_message(chat_lid: str, telefone: str, identificador: str, mensagem: str, message_id: str, tipo: str, from_me: bool, sender: str, is_group: bool, chat_name: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
+    """Processa mensagem do webhook - OTIMIZADO"""
     try:
-        logger.info(f"📝 Processando: {identificador}")
-        
+        # Buscar ou criar contato (com cache em memória)
         contato_service = ContatoService()
         
         if is_group:
@@ -199,27 +197,17 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 is_group=False
             )
         
-        logger.info(f"📇 Contato: {contato['id']}")
-        
+        # Buscar sessão (com cache)
         sessao_service = SessaoService()
         sessao = await sessao_service.get_or_create_sessao(
             contato_id=contato["id"],
             is_group=is_group,
             identificador=identificador
         )
-        logger.info(f"📋 Sessão: {sessao['id']}")
         
-        mensagem_service = MensagemService()
-        
-        # ============================================
-        # CORREÇÃO: Verificar duplicata de mensagem do atendente
-        # ============================================
-        # Verificar se é uma mensagem de confirmação do webhook (from_me=true)
+        # Verificar duplicata de atendente (rápido)
         if from_me:
-            # Buscar mensagem recente na mesma sessão com mesmo conteúdo
-            # Independente do sender (pode ser "atendente" da API ou "pepper" do webhook)
             limite = now_utc() - timedelta(seconds=60)
-            
             duplicata = await db.db.mensagens.find_one({
                 "sessao_id": sessao["id"],
                 "conteudo": mensagem,
@@ -228,22 +216,16 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
             })
             
             if duplicata:
-                logger.info(f"⏭️ Mensagem duplicada do atendente ignorada: {mensagem[:30]}")
-                
                 await sessao_service.atualizar_sessao(sessao["id"], {
                     "ultima_interacao": now_utc()
                 })
-                
-                if is_group:
-                    logger.info(f"📢 Mensagem de grupo: {identificador}")
-                else:
+                if not is_group:
                     await sessao_service.registrar_resposta_atendente(sessao["id"])
-                    logger.info(f"📤 Atendente respondeu confirmado (duplicata ignorada)")
-                
-                logger.info(f"✅ Processado (duplicata ignorada): {identificador}")
                 return
         
-        # Salvar mensagem
+        # Salvar mensagem (assíncrono)
+        mensagem_service = MensagemService()
+        
         if tipo in ["imagem", "documento", "audio", "video", "localizacao", "contato"]:
             await mensagem_service.salvar_mensagem_webhook(
                 sessao_id=sessao["id"],
@@ -269,11 +251,14 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 from_me=from_me
             )
         
+        # Atualizar sessão
         await sessao_service.atualizar_sessao(sessao["id"], {
             "ultima_interacao": now_utc()
         })
         
+        # Processar mensagem do cliente (não grupo)
         if not from_me and not is_group:
+            # CANCELAR
             if mensagem.upper() == "CANCELAR" or mensagem == "❌ CANCELAR":
                 await sessao_service.cancelar_atendimento_humano(sessao["id"])
                 await mensagem_service.enfileirar_resposta(
@@ -284,10 +269,12 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 )
                 return
             
+            # ATENDIMENTO HUMANO
             if sessao.get("status") == "humano":
                 await sessao_service.cliente_enviou_mensagem(sessao["id"])
                 return
             
+            # PROCESSAR RESPOSTA DO BOT
             from app.core.state_machine import StateMachine
             sm = StateMachine()
             novo_estado, resposta = await sm.process_message(sessao, mensagem)
@@ -300,6 +287,7 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 "menu_anterior": menu_anterior
             })
             
+            # ATIVAR ATENDIMENTO HUMANO
             if resposta.get("status_humano"):
                 setor = resposta.get("setor")
                 await sessao_service.atualizar_sessao(sessao["id"], {
@@ -309,8 +297,8 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                     "human_response_sent": False,
                     "aguardando_atendente": True
                 })
-                logger.info(f"👤 Atendimento humano ativado - Setor: {setor}")
             
+            # ENVIAR RESPOSTA
             if resposta.get("texto"):
                 await mensagem_service.enfileirar_resposta(
                     contato_id=contato["id"],
@@ -319,6 +307,7 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                     botoes=resposta.get("botoes", [])
                 )
             
+            # FILA HUMANA
             if resposta.get("criar_fila_humana"):
                 from app.services.fila_humana_service import FilaHumanaService
                 fila_service = FilaHumanaService()
@@ -328,16 +317,10 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                     tipo=resposta.get("tipo_fila", "atendimento")
                 )
         
+        # MENSAGEM DO ATENDENTE OU GRUPO
         elif from_me or is_group:
-            if is_group:
-                logger.info(f"📢 Mensagem de grupo: {identificador}")
-            else:
+            if not is_group:
                 await sessao_service.registrar_resposta_atendente(sessao["id"])
-                logger.info(f"📤 Atendente respondeu confirmado")
-        
-        logger.info(f"✅ Processado: {identificador}")
         
     except Exception as e:
-        logger.error(f"❌ Erro: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Erro processando: {str(e)}")

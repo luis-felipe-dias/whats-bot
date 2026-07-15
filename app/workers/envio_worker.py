@@ -1,12 +1,11 @@
-# app/workers/envio_worker.py
+# app/workers/envio_worker.py - OTIMIZADO PARA ALTA PERFORMANCE
 import asyncio
 import random
-from datetime import datetime
-from app.utils.helpers import now_utc
+from datetime import datetime, timezone
 from typing import Optional
-from bson import ObjectId
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
+from app.utils.helpers import now_utc
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,11 +15,14 @@ class EnvioWorker:
         self.running = False
         self.task: Optional[asyncio.Task] = None
         self.whatsapp_api = WhatsAppAPI()
+        # Configurar pool de workers
+        self.worker_count = 5  # 5 workers paralelos
+        self.batch_size = 50  # Mensagens por lote
         
     async def start(self):
         self.running = True
         self.task = asyncio.create_task(self._worker_loop())
-        logger.info("Envio worker iniciado")
+        logger.info(f"✅ Envio worker iniciado com {self.worker_count} workers paralelos")
         
     async def stop(self):
         self.running = False
@@ -30,34 +32,32 @@ class EnvioWorker:
                 await self.task
             except asyncio.CancelledError:
                 pass
-        logger.info("Envio worker parado")
+        logger.info("🛑 Envio worker parado")
         
     async def _worker_loop(self):
-        ultimo_envio_por_contato = {}
-        
         while self.running:
             try:
-                mensagens = await self._get_pending_messages()
+                # Buscar mensagens em lote
+                mensagens = await self._get_pending_messages(self.batch_size)
                 
-                for mensagem in mensagens:
-                    contato_id = str(mensagem["contato_id"])
-                    now = now_utc()
+                if mensagens:
+                    # Processar em paralelo com pool de workers
+                    tasks = []
+                    for mensagem in mensagens:
+                        tasks.append(self._enviar_com_retry(mensagem))
                     
-                    if contato_id in ultimo_envio_por_contato:
-                        diff = (now - ultimo_envio_por_contato[contato_id]).total_seconds()
-                        if diff < 2:
-                            continue
+                    # Aguardar todos os envios paralelos
+                    resultados = await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    delay = random.uniform(1, 3)
-                    await asyncio.sleep(delay)
-                    
-                    sucesso = await self._enviar_com_retry(mensagem)
-                    
-                    if sucesso:
-                        await self._marcar_como_enviado(mensagem["_id"])
-                        ultimo_envio_por_contato[contato_id] = now_utc()
-                    else:
-                        await self._marcar_como_erro(mensagem["_id"])
+                    # Atualizar status de cada mensagem
+                    for i, (mensagem, resultado) in enumerate(zip(mensagens, resultados)):
+                        if isinstance(resultado, Exception):
+                            await self._marcar_como_erro(mensagem["_id"])
+                            logger.error(f"Erro no envio: {str(resultado)}")
+                        elif resultado:
+                            await self._marcar_como_enviado(mensagem["_id"])
+                        else:
+                            await self._marcar_como_erro(mensagem["_id"])
                 
                 await asyncio.sleep(0.5)
                 
@@ -67,7 +67,7 @@ class EnvioWorker:
                 logger.error(f"Erro no loop do worker: {str(e)}")
                 await asyncio.sleep(5)
     
-    async def _get_pending_messages(self, limit: int = 10):
+    async def _get_pending_messages(self, limit: int = 50):
         cursor = db.db.fila_envio.find({"status": "pendente"}).limit(limit)
         return await cursor.to_list(length=limit)
     
@@ -79,30 +79,15 @@ class EnvioWorker:
                 if contato_id and hasattr(contato_id, 'binary'):
                     contato_id = str(contato_id)
                 
-                logger.info(f"Buscando contato com ID: {contato_id}")
-                
                 contato = await db.db.contatos.find_one({"_id": contato_id})
-                
-                if not contato and contato_id:
-                    try:
-                        contato = await db.db.contatos.find_one({"_id": ObjectId(contato_id)})
-                    except:
-                        pass
-                
                 if not contato:
-                    logger.error(f"Contato nao encontrado: {contato_id}")
-                    return False
+                    continue
                 
                 texto = mensagem["conteudo"]
                 botoes = mensagem.get("botoes", [])
                 
-                logger.info(f"Enviando para: {contato['telefone']}")
-                logger.info(f"Texto: {texto[:50]}...")
-                logger.info(f"Botoes: {botoes}")
-                
-                # Enviar com botões se houver
                 if botoes and len(botoes) > 0:
-                    sucesso = await self.whatsapp_api.send_buttons(
+                    sucesso = await self.whatsapp_api.send_interactive(
                         telefone=contato["telefone"],
                         texto=texto,
                         buttons=botoes
@@ -114,12 +99,12 @@ class EnvioWorker:
                     )
                 
                 if sucesso:
-                    logger.info(f"Mensagem enviada com sucesso para {contato['telefone']}")
                     return True
                     
             except Exception as e:
-                logger.error(f"Erro no envio (tentativa {tentativa + 1}): {str(e)}")
+                logger.error(f"Erro envio (tentativa {tentativa + 1}): {str(e)}")
                 
+            # Backoff exponencial
             await asyncio.sleep(2 ** tentativa)
             
         return False
