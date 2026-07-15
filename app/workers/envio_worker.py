@@ -2,6 +2,7 @@
 import asyncio
 import random
 from datetime import datetime
+from app.utils.helpers import now_utc
 from typing import Optional
 from bson import ObjectId
 from app.core.database import db
@@ -40,7 +41,7 @@ class EnvioWorker:
                 
                 for mensagem in mensagens:
                     contato_id = str(mensagem["contato_id"])
-                    now = datetime.now()
+                    now = now_utc()
                     
                     if contato_id in ultimo_envio_por_contato:
                         diff = (now - ultimo_envio_por_contato[contato_id]).total_seconds()
@@ -54,7 +55,7 @@ class EnvioWorker:
                     
                     if sucesso:
                         await self._marcar_como_enviado(mensagem["_id"])
-                        ultimo_envio_por_contato[contato_id] = datetime.now()
+                        ultimo_envio_por_contato[contato_id] = now_utc()
                     else:
                         await self._marcar_como_erro(mensagem["_id"])
                 
@@ -126,7 +127,7 @@ class EnvioWorker:
     async def _marcar_como_enviado(self, mensagem_id):
         await db.db.fila_envio.update_one(
             {"_id": mensagem_id},
-            {"$set": {"status": "enviado", "data_envio": datetime.now()}}
+            {"$set": {"status": "enviado", "data_envio": now_utc()}}
         )
     
     async def _marcar_como_erro(self, mensagem_id):

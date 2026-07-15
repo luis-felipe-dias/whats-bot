@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from app.core.database import db
 from datetime import datetime, timedelta
+from app.utils.helpers import now_utc
 import logging
 
 router = APIRouter()
@@ -25,7 +26,7 @@ async def get_estatisticas():
         })
         
         # Mensagens hoje
-        hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        hoje = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
         mensagens_hoje = await db.db.mensagens.count_documents({
             "data_hora": {"$gte": hoje}
         })
@@ -73,7 +74,7 @@ async def estatisticas_contatos():
         personalizados = await db.db.contatos.count_documents({"nome_personalizado": True})
         
         # Contatos com interação nos últimos 7 dias
-        semana = datetime.now() - timedelta(days=7)
+        semana = now_utc() - timedelta(days=7)
         ativos = await db.db.contatos.count_documents({
             "ultima_interacao": {"$gte": semana}
         })

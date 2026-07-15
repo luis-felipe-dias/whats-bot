@@ -1,6 +1,7 @@
 # app/services/mensagem_service.py
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
+from app.utils.helpers import now_utc
 from datetime import datetime
 import logging
 from bson import ObjectId
@@ -12,109 +13,108 @@ class MensagemService:
     def __init__(self):
         self.whatsapp_api = WhatsAppAPI()
     
-    async def salvar_mensagem_recebida(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str = "texto", file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, message_id_zapi: str = None, reference_message_id: str = None, is_reply: bool = False, is_status_reply: bool = False, from_me: bool = False, chat_id: str = None, status: str = None, sender: str = "cliente", direcao: str = "recebida"):
-        """Salva mensagem recebida com todos os dados disponíveis"""
+    async def salvar_mensagem_webhook(self, sessao_id: str, contato_id: str, conteudo: str, message_id: str, tipo: str, sender: str, from_me: bool, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
+        """Salva mensagem do webhook - FONTE ÚNICA DE VERDADE"""
         try:
             mensagem = {
                 "sessao_id": sessao_id,
                 "contato_id": contato_id,
-                "direcao": direcao,
+                "message_id": message_id,
+                "direcao": "recebida" if not from_me else "enviada",
                 "sender": sender,
+                "from_me": from_me,
                 "tipo": tipo,
                 "conteudo": conteudo,
-                "conteudo_original": conteudo_original,
-                "data_hora": datetime.now(),
-                "respondida": False,
-                "message_id_zapi": message_id_zapi,
-                "reference_message_id": reference_message_id,
-                "is_reply": is_reply,
-                "is_status_reply": is_status_reply,
-                "from_me": from_me,
-                "chat_id": chat_id,
-                "status": status
+                "data_hora": now_utc(),
+                "respondida": False
             }
             
             if file_url:
                 mensagem["file_url"] = file_url
-            if file_name:
                 mensagem["file_name"] = file_name
-            if mime_type:
                 mensagem["mime_type"] = mime_type
-            if caption:
-                mensagem["caption"] = caption
+                mensagem["caption"] = caption or ""
             
             result = await db.db.mensagens.insert_one(mensagem)
-            logger.info(f"📝 Mensagem salva: {result.inserted_id} - ZAPI: {message_id_zapi} - sender: {sender}")
+            logger.info(f"📝 Mensagem webhook salva: {result.inserted_id} - sender: {sender}")
+            return result.inserted_id
+        except Exception as e:
+            logger.error(f"Erro salvar mensagem webhook: {str(e)}")
+            raise
+    
+    async def salvar_mensagem_recebida(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str = "texto"):
+        """Salva mensagem recebida (mantido para compatibilidade)"""
+        try:
+            mensagem = {
+                "sessao_id": sessao_id,
+                "contato_id": contato_id,
+                "direcao": "recebida",
+                "tipo": tipo,
+                "conteudo": conteudo,
+                "conteudo_original": conteudo_original,
+                "data_hora": now_utc(),
+                "respondida": False
+            }
+            result = await db.db.mensagens.insert_one(mensagem)
             return result.inserted_id
         except Exception as e:
             logger.error(f"Erro salvar mensagem: {str(e)}")
             raise
     
-    async def salvar_mensagem_enviada(self, sessao_id: str, contato_id: str, conteudo: str, tipo: str = "texto", sender: str = "pepper", atendente: str = None, message_id_zapi: str = None, status: str = None):
-        """Salva mensagem enviada (pelo bot ou atendente)"""
+    async def salvar_mensagem_com_midia(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
+        """Salva mensagem com mídia (mantido para compatibilidade)"""
         try:
             mensagem = {
                 "sessao_id": sessao_id,
                 "contato_id": contato_id,
-                "direcao": "enviada",
-                "sender": sender,
-                "tipo": tipo,
-                "conteudo": conteudo,
-                "data_hora": datetime.now(),
-                "respondida": True,
-                "message_id_zapi": message_id_zapi,
-                "status": status
-            }
-            
-            if atendente:
-                mensagem["atendente"] = atendente
-            
-            result = await db.db.mensagens.insert_one(mensagem)
-            logger.info(f"📤 Mensagem enviada salva: {result.inserted_id} - ZAPI: {message_id_zapi}")
-            return result.inserted_id
-        except Exception as e:
-            logger.error(f"Erro salvar mensagem enviada: {str(e)}")
-            raise
-    
-    async def atualizar_status_mensagem(self, message_id_zapi: str, status: str):
-        """Atualiza o status de uma mensagem na Z-API"""
-        try:
-            await db.db.mensagens.update_one(
-                {"message_id_zapi": message_id_zapi},
-                {"$set": {"status": status}}
-            )
-            logger.info(f"🔄 Status da mensagem {message_id_zapi} atualizado para: {status}")
-        except Exception as e:
-            logger.error(f"Erro ao atualizar status: {str(e)}")
-            raise
-    
-    async def salvar_mensagem_com_midia(self, sessao_id: str, contato_id: str, conteudo: str, conteudo_original: str, tipo: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, message_id_zapi: str = None, sender: str = "cliente", direcao: str = "recebida"):
-        """Salva mensagem com mídia"""
-        try:
-            mensagem = {
-                "sessao_id": sessao_id,
-                "contato_id": contato_id,
-                "direcao": direcao,
-                "sender": sender,
+                "direcao": "recebida",
                 "tipo": tipo,
                 "conteudo": conteudo,
                 "conteudo_original": conteudo_original,
-                "data_hora": datetime.now(),
-                "file_url": file_url,
+                "data_hora": now_utc(),
                 "file_name": file_name,
                 "mime_type": mime_type,
                 "caption": caption or "",
-                "respondida": False,
-                "message_id_zapi": message_id_zapi
+                "respondida": False
             }
+            
+            if file_url:
+                mensagem["file_url"] = file_url
+            else:
+                mensagem["file_url"] = None
+                mensagem["status"] = "url_pendente"
+            
             result = await db.db.mensagens.insert_one(mensagem)
-            logger.info(f"📎 Mídia salva: {tipo} - {file_name} - sender: {sender}")
             return result.inserted_id
         except Exception as e:
             logger.error(f"Erro salvar mídia: {str(e)}")
             raise
     
-    async def enfileirar_resposta(self, contato_id: str, sessao_id: str, mensagem: str, botoes: list = None, sender: str = "pepper", atendente: str = None):
+    async def salvar_mensagem_enviada(self, sessao_id: str, contato_id: str, conteudo: str, message_id: str = None):
+        """Salva mensagem enviada pelo atendente"""
+        try:
+            mensagem = {
+                "sessao_id": sessao_id,
+                "contato_id": contato_id,
+                "direcao": "enviada",
+                "sender": "human",
+                "tipo": "texto",
+                "conteudo": conteudo,
+                "data_hora": now_utc(),
+                "respondida": True
+            }
+            if message_id:
+                mensagem["message_id"] = message_id
+            
+            result = await db.db.mensagens.insert_one(mensagem)
+            logger.info(f"📤 Mensagem enviada salva: {result.inserted_id}")
+            return result.inserted_id
+        except Exception as e:
+            logger.error(f"Erro salvar mensagem enviada: {str(e)}")
+            raise
+    
+    async def enfileirar_resposta(self, contato_id: str, sessao_id: str, mensagem: str, botoes: list = None):
+        """Envia resposta para o cliente"""
         try:
             if isinstance(contato_id, ObjectId):
                 contato_id = str(contato_id)
@@ -130,13 +130,18 @@ class MensagemService:
                 sucesso = await self.whatsapp_api.send_text(contato["telefone"], mensagem)
             
             if sucesso:
-                await self.salvar_mensagem_enviada(
-                    sessao_id=sessao_id,
-                    contato_id=contato_id,
-                    conteudo=mensagem,
-                    tipo="texto",
-                    sender=sender
-                )
+                # Registrar mensagem enviada pelo bot (Pepper)
+                mensagem_enviada = {
+                    "sessao_id": sessao_id,
+                    "contato_id": contato_id,
+                    "direcao": "enviada",
+                    "sender": "pepper",
+                    "tipo": "texto",
+                    "conteudo": mensagem,
+                    "data_hora": now_utc(),
+                    "respondida": True
+                }
+                await db.db.mensagens.insert_one(mensagem_enviada)
                 logger.info(f"✅ Resposta enviada com sucesso")
                 return True
             else:

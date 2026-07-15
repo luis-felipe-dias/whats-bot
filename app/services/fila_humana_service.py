@@ -1,6 +1,7 @@
 # app/services/fila_humana_service.py
 from app.core.database import db
 from datetime import datetime
+from app.utils.helpers import now_utc
 from bson import ObjectId
 import logging
 
@@ -18,7 +19,7 @@ class FilaHumanaService:
                 "status": "pendente",
                 "dados": {},
                 "prioridade": 0,
-                "data_criacao": datetime.now()
+                "data_criacao": now_utc()
             }
             
             result = await db.db.fila_humana.insert_one(ticket)
@@ -29,7 +30,7 @@ class FilaHumanaService:
                 "contato_id": contato_id,
                 "sessao_id": sessao_id,
                 "dados": {"tipo": tipo},
-                "data_hora": datetime.now()
+                "data_hora": now_utc()
             })
             
             logger.info(f"Ticket criado na fila humana: {result.inserted_id} - Tipo: {tipo}")
@@ -46,7 +47,7 @@ class FilaHumanaService:
                 {"_id": ObjectId(ticket_id)},
                 {"$set": {
                     "status": "cancelado",
-                    "data_fim": datetime.now()
+                    "data_fim": now_utc()
                 }}
             )
             
