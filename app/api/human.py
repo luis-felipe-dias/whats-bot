@@ -4,11 +4,12 @@ from pydantic import BaseModel
 from typing import Optional
 from app.services.sessao_service import SessaoService
 from app.services.mensagem_service import MensagemService
+from app.services.contato_service import ContatoService
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
-from app.utils.helpers import now_utc, format_iso_brasilia
+from app.utils.helpers import now_utc, now_utc_naive, format_iso_brasilia
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 router = APIRouter()
@@ -23,6 +24,11 @@ class MensagemMidiaRequest(BaseModel):
     midia_url: str
     legenda: Optional[str] = None
     nome_arquivo: Optional[str] = None
+    atendente_nome: Optional[str] = "Atendente"
+
+class IniciarConversaRequest(BaseModel):
+    telefone: str
+    mensagem: str
     atendente_nome: Optional[str] = "Atendente"
 
 # ============================================
@@ -47,7 +53,7 @@ async def listar_todas_sessoes():
             resultado.append({
                 "sessao_id": str(sessao["_id"]),
                 "cliente": sessao.get("cliente_nome") or (contato.get("nome") if contato else "Desconhecido"),
-                "telefone": sessao.get("group_id") if sessao.get("is_group") else (contato.get("telefone") if contato else "Desconhecido"),
+                "telefone": sessao.get("identificador") if sessao.get("is_group") else (contato.get("telefone") if contato else "Desconhecido"),
                 "status": sessao.get("status"),
                 "estado_atual": sessao.get("estado_atual"),
                 "setor_responsavel": sessao.get("setor_responsavel"),
@@ -59,6 +65,73 @@ async def listar_todas_sessoes():
         return {"sucesso": True, "sessoes": resultado}
     except Exception as e:
         logger.error(f"Erro ao listar sessões: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================
+# ATENDENTE INICIA A CONVERSA (fala primeiro com o cliente)
+# ============================================
+@router.post("/sessoes/iniciar")
+async def iniciar_conversa_atendente(request: IniciarConversaRequest):
+    """
+    Atendente manda a PRIMEIRA mensagem para um cliente (a Peper nunca
+    falou com ele nessa sessão, ou o atendente quer puxar assunto antes).
+    Sem isso, assim que o cliente respondesse o bot tomava conta da
+    conversa como se fosse uma sessão normal. Aqui a sessão fica com o
+    bot suspenso por 30min - mesma janela usada em outras regras do
+    painel - e volta sozinha ao normal automático se ninguém mexer.
+    """
+    try:
+        telefone = ''.join(filter(str.isdigit, request.telefone))
+        if len(telefone) >= 10 and not telefone.startswith('55'):
+            telefone = '55' + telefone
+        if len(telefone) < 10:
+            raise HTTPException(status_code=400, detail="Telefone inválido")
+
+        if not request.mensagem or not request.mensagem.strip():
+            raise HTTPException(status_code=400, detail="Mensagem não pode ser vazia")
+
+        contato_service = ContatoService()
+        sessao_service = SessaoService()
+
+        contato = await contato_service.get_or_create_contato(telefone=telefone)
+        sessao = await sessao_service.get_or_create_sessao(contato["id"], is_group=False, identificador=telefone)
+
+        whatsapp = WhatsAppAPI()
+        sucesso = await whatsapp.send_text(telefone, request.mensagem)
+        if not sucesso:
+            raise HTTPException(status_code=502, detail="Falha ao enviar mensagem pelo WhatsApp")
+
+        bot_suspenso_ate = now_utc_naive() + timedelta(minutes=30)
+        await sessao_service.atualizar_sessao(sessao["id"], {
+            "bot_suspenso_ate": bot_suspenso_ate,
+            "iniciada_por_atendente": True,
+            "human_response_sent": True,
+            "aguardando_atendente": False
+        })
+
+        mensagem_data = {
+            "sessao_id": sessao["id"],
+            "contato_id": contato["id"],
+            "direcao": "enviada",
+            "sender": "human",
+            "tipo": "texto",
+            "conteudo": request.mensagem,
+            "data_hora": now_utc(),
+            "respondida": True,
+            "atendente": request.atendente_nome
+        }
+        await db.db.mensagens.insert_one(mensagem_data)
+
+        return {
+            "sucesso": True,
+            "sessao_id": sessao["id"],
+            "contato": {"id": contato["id"], "nome": contato.get("nome"), "telefone": telefone},
+            "bot_suspenso_ate": bot_suspenso_ate.isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao iniciar conversa: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================
@@ -112,11 +185,19 @@ async def enviar_mensagem_humana(session_id: str, request: MensagemRequest):
     try:
         sessao_service = SessaoService()
         result = await sessao_service.enviar_mensagem_humana(
-            session_id, 
-            request.mensagem, 
+            session_id,
+            request.mensagem,
             request.atendente_nome
         )
+        # Antes: sempre retornava 200 mesmo quando o WhatsApp recusou o envio
+        # (result["success"] = False), e o painel tratava qualquer resposta
+        # como sucesso. Resultado: atendente via a mensagem "enviada" no
+        # histórico e o cliente nunca recebia nada, sem nenhum aviso.
+        if not result.get("success", False):
+            raise HTTPException(status_code=502, detail=result.get("error") or result.get("message") or "Falha ao enviar mensagem pelo WhatsApp")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro ao enviar mensagem: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -135,7 +216,7 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
         
         contato_telefone = None
         if sessao.get("is_group"):
-            contato_telefone = sessao.get("group_id")
+            contato_telefone = sessao.get("identificador")
         else:
             contato = await db.db.contatos.find_one({"_id": ObjectId(sessao["contato_id"])})
             if not contato:
@@ -159,7 +240,10 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
             sucesso = await whatsapp.send_video(contato_telefone, request.midia_url, request.legenda or "")
         
         if not sucesso:
-            return {"success": False, "message": "Falha ao enviar mídia"}
+            # Mesmo motivo do /enviar: sem isso, o painel mostrava "encaminhada
+            # com sucesso" mesmo quando a Z-API recusou (ex.: link da mídia
+            # expirado, formato inválido) e o cliente nunca recebia o arquivo.
+            raise HTTPException(status_code=502, detail="Falha ao enviar mídia (link pode ter expirado ou a Z-API recusou o envio)")
         
         mensagem_data = {
             "sessao_id": session_id,
@@ -220,7 +304,7 @@ async def cancelar_atendimento(session_id: str):
         
         telefone_destino = None
         if sessao.get("is_group"):
-            telefone_destino = sessao.get("group_id")
+            telefone_destino = sessao.get("identificador")
         else:
             contato = await db.db.contatos.find_one({"_id": ObjectId(sessao["contato_id"])})
             if contato:

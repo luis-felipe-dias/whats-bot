@@ -6,6 +6,16 @@ def now_utc() -> datetime:
     """Retorna datetime atual em UTC (padrão para salvamento)"""
     return datetime.now(timezone.utc)
 
+def now_utc_naive() -> datetime:
+    """
+    Igual a now_utc(), mas sem timezone (naive). O Motor/MongoDB não está
+    configurado com tz_aware=True, então datetimes lidos do banco voltam
+    naive - comparar um aware (now_utc()) com um naive lido do Mongo
+    (ex.: bot_suspenso_ate) explode com TypeError. Use esta função sempre
+    que for comparar "agora" com um datetime vindo direto do banco.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 def now_brasilia() -> datetime:
     """Retorna datetime atual no fuso de Brasília (para exibição)"""
     return datetime.now(TIMEZONE)

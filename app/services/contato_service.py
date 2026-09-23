@@ -34,8 +34,9 @@ class ContatoService:
                         )
                         contato["telefone"] = telefone
                         logger.info(f"🔄 Telefone atualizado para contato: {telefone}")
+                    contato = await self._sincronizar_nome(contato, nome)
                     return self._format_contato(contato)
-            
+
             # 2. BUSCAR POR TELEFONE (SECUNDÁRIO)
             if telefone and not contato:
                 contato = await db.db.contatos.find_one({"telefone": telefone})
@@ -49,6 +50,7 @@ class ContatoService:
                         )
                         contato["chat_lid"] = chat_lid
                         logger.info(f"🔄 chat_lid atualizado para contato: {chat_lid}")
+                    contato = await self._sincronizar_nome(contato, nome)
                     return self._format_contato(contato)
             
             # 3. CRIAR NOVO CONTATO
@@ -58,7 +60,11 @@ class ContatoService:
                     "chat_lid": chat_lid,
                     "telefone": telefone,
                     "nome": nome or telefone or "Cliente",
-                    "nome_personalizado": bool(nome),
+                    # "personalizado" = alguém do painel corrigiu manualmente.
+                    # O nome que chega do próprio WhatsApp (chatName) é
+                    # automático, não personalizado - por isso sempre nasce
+                    # False, mesmo quando já veio um nome do WhatsApp.
+                    "nome_personalizado": False,
                     "is_group": is_group,
                     "data_criacao": now_utc(),
                     "data_atualizacao": now_utc(),
@@ -77,6 +83,29 @@ class ContatoService:
             logger.error(f"❌ Erro ao buscar/criar contato: {str(e)}")
             raise
     
+    async def _sincronizar_nome(self, contato: dict, nome: str) -> dict:
+        """
+        Atualiza o nome automaticamente com o que vier do WhatsApp, mas só
+        quando ninguém corrigiu esse nome manualmente pelo painel
+        (nome_personalizado=True protege a correção). Sem isso, um contato
+        criado sem chatName (ex: primeira mensagem foi uma mídia) ficava
+        com o telefone como "nome" para sempre, mesmo depois do WhatsApp
+        mandar o nome certo em mensagens seguintes.
+        """
+        if not nome:
+            return contato
+        if contato.get("nome_personalizado"):
+            return contato
+        if contato.get("nome") == nome:
+            return contato
+        await db.db.contatos.update_one(
+            {"_id": contato["_id"]},
+            {"$set": {"nome": nome, "data_atualizacao": now_utc()}}
+        )
+        contato["nome"] = nome
+        logger.info(f"🔄 Nome sincronizado automaticamente: {nome}")
+        return contato
+
     async def atualizar_nome(self, contato_id: str, nome: str):
         """Atualiza o nome do contato"""
         try:

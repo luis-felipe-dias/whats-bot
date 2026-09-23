@@ -66,6 +66,35 @@ async def get_estatisticas():
         logger.error(f"Erro ao obter estatísticas: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/estatisticas/setores")
+async def estatisticas_setores():
+    """
+    Sessões humanas abertas agora, agrupadas por setor - mostra onde a fila
+    está concentrada (ex: Técnico com 8 sessões abertas e RH com 0), pra
+    comparar carga entre setores e não só entre atendentes.
+    """
+    try:
+        pipeline = [
+            {"$match": {"status": {"$in": ["humano", "aguardando_atendente"]}}},
+            {"$group": {
+                "_id": {"$ifNull": ["$setor_responsavel", "atendimento"]},
+                "total": {"$sum": 1},
+                "aguardando": {"$sum": {"$cond": [{"$eq": ["$aguardando_atendente", True]}, 1, 0]}}
+            }},
+            {"$sort": {"total": -1}}
+        ]
+        resultado = await db.db.sessoes.aggregate(pipeline).to_list(length=None)
+
+        setores = [
+            {"setor": item["_id"], "total": item["total"], "aguardando": item["aguardando"]}
+            for item in resultado
+        ]
+
+        return {"sucesso": True, "setores": setores}
+    except Exception as e:
+        logger.error(f"Erro ao obter estatísticas por setor: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/estatisticas/contatos")
 async def estatisticas_contatos():
     """Estatísticas detalhadas de contatos"""

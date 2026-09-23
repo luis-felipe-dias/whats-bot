@@ -161,6 +161,10 @@ class SessaoService:
                 "last_menu": None,
                 "menu_anterior": None
             })
+
+            from app.services.fila_humana_service import FilaHumanaService
+            await FilaHumanaService().fechar_tickets_da_sessao(str(sessao_id), motivo="cancelado")
+
             logger.info(f"❌ Atendimento humano cancelado - Sessão resetada para menu_principal")
         except Exception as e:
             logger.error(f"Erro ao cancelar atendimento humano: {str(e)}")
@@ -272,12 +276,27 @@ class SessaoService:
                     "type": msg.get("tipo", "texto"),
                     "respondida": msg.get("respondida", False)
                 }
-                
+
                 if msg.get("file_url"):
                     item["file_url"] = msg.get("file_url")
                     item["file_name"] = msg.get("file_name")
                     item["mime_type"] = msg.get("mime_type")
-                
+
+                # Quem escreveu dentro de um grupo (nome/telefone da pessoa,
+                # não do grupo)
+                if msg.get("remetente_nome"):
+                    item["remetente_nome"] = msg.get("remetente_nome")
+                if msg.get("remetente_telefone"):
+                    item["remetente_telefone"] = msg.get("remetente_telefone")
+
+                # Resposta a Status/story ou a uma mensagem específica
+                if msg.get("is_status_reply"):
+                    item["is_status_reply"] = True
+                if msg.get("reference_message_id"):
+                    item["reference_message_id"] = msg.get("reference_message_id")
+                if msg.get("reference_preview"):
+                    item["reference_preview"] = msg.get("reference_preview")
+
                 resultado.append(item)
             return resultado
         except Exception as e:
@@ -363,6 +382,10 @@ class SessaoService:
                 "status": "finalizada",
                 "data_fim": now_utc()
             })
+
+            from app.services.fila_humana_service import FilaHumanaService
+            await FilaHumanaService().fechar_tickets_da_sessao(str(sessao_id), motivo="resolvido")
+
             logger.info(f"🏁 Sessão finalizada: {sessao_id}")
         except Exception as e:
             logger.error(f"Erro ao finalizar sessão: {str(e)}")

@@ -9,12 +9,9 @@ services:
     restart: always
     ports:
       - "8000:8000"
-    environment:
-      - MONGODB_URL=mongodb://plablo:<db_password>@ac-zgmviop-shard-00-00.t0ozb1f.mongodb.net:27017,ac-zgmviop-shard-00-01.t0ozb1f.mongodb.net:27017,ac-zgmviop-shard-00-02.t0ozb1f.mongodb.net:27017/?ssl=true&replicaSet=atlas-y77oa6-shard-0&authSource=admin&appName=Cluster0
-      - MONGODB_DB_NAME=yup_customer_service
-      - ZAPI_INSTANCE_ID=3F43467A7F5BF175DDAF66DA177DAE5D
-      - ZAPI_TOKEN=7B297D6399C13767601B1C78
-      - ZAPI_URL=https://api.z-api.io
+    # Credenciais reais (senha do Mongo, tokens da Z-API) ficam SÓ no .env
+    # (que não vai pro Git). Antes elas estavam duplicadas aqui em texto
+    # puro - se este arquivo fosse commitado, vazava senha e token.
     env_file:
       - .env
     volumes:

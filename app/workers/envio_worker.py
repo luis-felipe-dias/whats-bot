@@ -121,7 +121,7 @@ class EnvioWorker:
                             self.whatsapp_api.send_interactive(
                                 telefone=contato["telefone"],
                                 texto=texto,
-                                buttons=botoes
+                                botoes=botoes
                             ),
                             timeout=30.0
                         )

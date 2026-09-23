@@ -13,7 +13,7 @@ class MensagemService:
     def __init__(self):
         self.whatsapp_api = WhatsAppAPI()
     
-    async def salvar_mensagem_webhook(self, sessao_id: str, contato_id: str, conteudo: str, message_id: str, tipo: str, sender: str, from_me: bool, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
+    async def salvar_mensagem_webhook(self, sessao_id: str, contato_id: str, conteudo: str, message_id: str, tipo: str, sender: str, from_me: bool, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, remetente_nome: str = None, remetente_telefone: str = None, is_status_reply: bool = False, reference_message_id: str = None):
         """Salva mensagem do webhook - FONTE ÚNICA DE VERDADE"""
         try:
             mensagem = {
@@ -28,13 +28,36 @@ class MensagemService:
                 "data_hora": now_utc(),
                 "respondida": False
             }
-            
+
             if file_url:
                 mensagem["file_url"] = file_url
                 mensagem["file_name"] = file_name
                 mensagem["mime_type"] = mime_type
                 mensagem["caption"] = caption or ""
-            
+
+            # Quem escreveu dentro de um grupo (o grupo é o "contato", mas
+            # quem manda a mensagem é uma pessoa específica dele)
+            if remetente_nome:
+                mensagem["remetente_nome"] = remetente_nome
+            if remetente_telefone:
+                mensagem["remetente_telefone"] = remetente_telefone
+
+            # Resposta a um Status/story ou a uma mensagem específica
+            if is_status_reply:
+                mensagem["is_status_reply"] = True
+            if reference_message_id:
+                mensagem["reference_message_id"] = reference_message_id
+                if not is_status_reply:
+                    # Guarda um preview da mensagem citada pra dar contexto
+                    # no histórico sem precisar buscar de novo depois
+                    try:
+                        citada = await db.db.mensagens.find_one({"message_id": reference_message_id})
+                        if citada:
+                            trecho = (citada.get("conteudo") or "")[:120]
+                            mensagem["reference_preview"] = trecho
+                    except Exception:
+                        pass
+
             result = await db.db.mensagens.insert_one(mensagem)
             logger.info(f"📝 Mensagem webhook salva: {result.inserted_id} - sender: {sender}")
             return result.inserted_id

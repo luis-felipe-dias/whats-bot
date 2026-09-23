@@ -5,7 +5,7 @@ from app.services.mensagem_service import MensagemService
 from app.services.sessao_service import SessaoService
 from app.services.contato_service import ContatoService
 from app.core.database import db
-from app.utils.helpers import now_utc
+from app.utils.helpers import now_utc, now_utc_naive
 from datetime import datetime, timedelta
 import logging
 import json
@@ -30,6 +30,17 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         chat_name = body.get("chatName") or body.get("senderName")
         chat_lid = body.get("chatLid")
         phone = body.get("phone")
+
+        # Quem mandou de fato a mensagem: em grupo, chatName é o nome DO
+        # GRUPO (usado acima pra nomear o contato-grupo) e senderName é o
+        # nome da PESSOA que escreveu - sem isso o histórico do grupo não
+        # dizia quem, dentro do grupo, mandou cada mensagem.
+        remetente_nome = body.get("senderName") if is_group else None
+        remetente_telefone = body.get("participantPhone") if is_group else None
+
+        # Resposta a mensagem específica ou a um Status/story do WhatsApp
+        is_status_reply = body.get("isStatusReply", False)
+        reference_message_id = body.get("referenceMessageId")
         
         # Determinar identificador
         if is_group:
@@ -162,7 +173,11 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
             file_url,
             file_name,
             mime_type,
-            caption
+            caption,
+            remetente_nome=remetente_nome,
+            remetente_telefone=remetente_telefone,
+            is_status_reply=is_status_reply,
+            reference_message_id=reference_message_id
         )
         
         return JSONResponse(status_code=200, content={"status": "received"})
@@ -176,7 +191,7 @@ async def process_webhook_message_with_semaphore(*args, **kwargs):
     async with _semaphore:
         await process_webhook_message(*args, **kwargs)
 
-async def process_webhook_message(chat_lid: str, telefone: str, identificador: str, mensagem: str, message_id: str, tipo: str, from_me: bool, sender: str, is_group: bool, chat_name: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None):
+async def process_webhook_message(chat_lid: str, telefone: str, identificador: str, mensagem: str, message_id: str, tipo: str, from_me: bool, sender: str, is_group: bool, chat_name: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, remetente_nome: str = None, remetente_telefone: str = None, is_status_reply: bool = False, reference_message_id: str = None):
     """Processa mensagem do webhook - OTIMIZADO"""
     try:
         # Buscar ou criar contato (com cache em memória)
@@ -238,7 +253,11 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 file_url=file_url,
                 file_name=file_name,
                 mime_type=mime_type,
-                caption=caption
+                caption=caption,
+                remetente_nome=remetente_nome,
+                remetente_telefone=remetente_telefone,
+                is_status_reply=is_status_reply,
+                reference_message_id=reference_message_id
             )
         else:
             await mensagem_service.salvar_mensagem_webhook(
@@ -248,7 +267,11 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 message_id=message_id,
                 tipo=tipo,
                 sender=sender,
-                from_me=from_me
+                from_me=from_me,
+                remetente_nome=remetente_nome,
+                remetente_telefone=remetente_telefone,
+                is_status_reply=is_status_reply,
+                reference_message_id=reference_message_id
             )
         
         # Atualizar sessão
@@ -273,7 +296,16 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
             if sessao.get("status") == "humano":
                 await sessao_service.cliente_enviou_mensagem(sessao["id"])
                 return
-            
+
+            # ATENDENTE INICIOU A CONVERSA (primeira mensagem foi do painel)
+            # Bot fica calado por 30min - mesma janela usada em outras regras
+            # do painel - pra não atropelar o atendente assim que o cliente
+            # responder. Passado esse tempo sem novo aviso, o bot volta sozinho.
+            bot_suspenso_ate = sessao.get("bot_suspenso_ate")
+            if bot_suspenso_ate and now_utc_naive() < bot_suspenso_ate:
+                await sessao_service.cliente_enviou_mensagem(sessao["id"])
+                return
+
             # PROCESSAR RESPOSTA DO BOT
             from app.core.state_machine import StateMachine
             sm = StateMachine()

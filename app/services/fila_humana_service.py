@@ -50,9 +50,28 @@ class FilaHumanaService:
                     "data_fim": now_utc()
                 }}
             )
-            
+
             logger.info(f"Ticket cancelado: {ticket_id}")
-            
+
         except Exception as e:
             logger.error(f"Erro ao cancelar ticket: {str(e)}")
             raise
+
+    async def fechar_tickets_da_sessao(self, sessao_id: str, motivo: str = "resolvido"):
+        """
+        Fecha (tira de 'pendente') todos os tickets abertos de uma sessão.
+        Sem isso, todo ticket criado ficava 'pendente' pra sempre - mesmo
+        depois do cliente cancelar ou do atendente finalizar - poluindo a
+        fila humana no painel com tickets fantasma.
+        """
+        try:
+            resultado = await db.db.fila_humana.update_many(
+                {"sessao_id": sessao_id, "status": "pendente"},
+                {"$set": {"status": motivo, "data_fim": now_utc()}}
+            )
+            if resultado.modified_count:
+                logger.info(f"🗂️ {resultado.modified_count} ticket(s) da sessão {sessao_id} fechado(s) como '{motivo}'")
+            return resultado.modified_count
+        except Exception as e:
+            logger.error(f"Erro ao fechar tickets da sessão: {str(e)}")
+            return 0
