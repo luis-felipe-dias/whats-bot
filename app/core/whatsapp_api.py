@@ -93,3 +93,27 @@ class WhatsAppAPI:
         if len(cleaned) >= 10 and not cleaned.startswith('55'):
             cleaned = '55' + cleaned
         return cleaned
+
+    async def resolver_telefone_whatsapp(self, telefone: str) -> str:
+        """
+        Pergunta pra Z-API qual é o número real (outputPhone) desse
+        telefone no WhatsApp, incluindo se tem ou não o 9º dígito.
+        Usado só quando o atendente digita o número manualmente no painel
+        (não tem chat_lid pra confiar) - sem isso, digitar um número que já
+        tinha conversado mas numa grafia diferente (com/sem o 9) criava um
+        contato duplicado. Se a Z-API falhar ou não reconhecer, devolve o
+        telefone limpo original (mesmo comportamento de antes).
+        """
+        cleaned = self._clean_phone_number(telefone)
+        url = f"{self.base_url}/instances/{self.instance_id}/token/{self.instance_token}/phone-exists/{cleaned}"
+        headers = {'Client-Token': self.client_token}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("exists") and data.get("outputPhone"):
+                    return ''.join(filter(str.isdigit, data["outputPhone"]))
+        except Exception as e:
+            logger.warning(f"⚠️ Não foi possível resolver telefone via Z-API ({cleaned}): {str(e)}")
+        return cleaned

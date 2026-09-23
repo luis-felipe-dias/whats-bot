@@ -40,6 +40,18 @@ class ContatoService:
             # 2. BUSCAR POR TELEFONE (SECUNDÁRIO)
             if telefone and not contato:
                 contato = await db.db.contatos.find_one({"telefone": telefone})
+                if not contato:
+                    # Fallback pro caso clássico do celular BR: o mesmo
+                    # número às vezes é salvo com e sem o 9º dígito
+                    # (55DDD9XXXXXXXX vs 55DDDXXXXXXXX), dependendo de
+                    # quando/como o contato entrou. Sem isso, iniciar
+                    # conversa pelo painel criava um contato duplicado
+                    # pra alguém que já tinha conversado antes.
+                    variante = self._variante_telefone_br(telefone)
+                    if variante:
+                        contato = await db.db.contatos.find_one({"telefone": variante})
+                        if contato:
+                            logger.info(f"📌 Contato encontrado por variante de telefone: {telefone} ~ {variante}")
                 if contato:
                     logger.info(f"📌 Contato encontrado por telefone: {telefone}")
                     # Atualizar chat_lid se necessário
@@ -125,6 +137,18 @@ class ContatoService:
             logger.error(f"Erro ao atualizar nome: {str(e)}")
             raise
     
+    def _variante_telefone_br(self, telefone: str) -> str:
+        """
+        Gera a variante com/sem o 9º dígito de um celular BR normalizado
+        (55DDNNNNNNNNN, 13 dígitos com o 9, ou 55DDNNNNNNNN, 12 sem).
+        Retorna "" quando o formato não bate com nenhum dos dois casos.
+        """
+        if telefone.startswith('55') and len(telefone) == 13 and telefone[4] == '9':
+            return telefone[:4] + telefone[5:]  # tira o 9
+        if telefone.startswith('55') and len(telefone) == 12:
+            return telefone[:4] + '9' + telefone[4:]  # adiciona o 9
+        return ""
+
     def _format_contato(self, contato: dict) -> dict:
         """Formata o contato para retorno"""
         contato["id"] = str(contato["_id"])

@@ -16,6 +16,26 @@ import logging
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+SETORES_VALIDOS = {
+    "atendimento": "Atendimento",
+    "financeiro": "Financeiro",
+    "comercial": "Comercial",
+    "ouvidoria": "Ouvidoria",
+    "tecnico": "Técnico",
+    "rh": "RH",
+    "qualidade": "Qualidade",
+}
+
+SETOR_PARA_TIPO_TICKET = {
+    "atendimento": "atendimento",
+    "financeiro": "pedido",
+    "comercial": "trocas",
+    "ouvidoria": "reclamacao",
+    "tecnico": "impressao",
+    "rh": "curriculo",
+    "qualidade": "reclamacao",
+}
+
 class MensagemRequest(BaseModel):
     mensagem: str
     atendente_nome: Optional[str] = "Atendente"
@@ -37,54 +57,43 @@ class TransferirSetorRequest(BaseModel):
     atendente_nome: Optional[str] = "Atendente"
     avisar_cliente: Optional[bool] = True
 
-# Setores reais que a Peper e o painel usam (ver MAPA_SETORES em
-# sessao_service.py). "qualidade" existe no mapeamento do painel
-# (sugestões) mas ainda não tem gatilho no bot - fica disponível aqui
-# mesmo assim, para transferência manual.
-SETORES_VALIDOS = {
-    "atendimento": "Atendimento",
-    "financeiro": "Financeiro",
-    "comercial": "Comercial",
-    "ouvidoria": "Ouvidoria",
-    "tecnico": "Técnico",
-    "rh": "RH",
-    "qualidade": "Qualidade"
-}
-
-# Tipo de ticket equivalente a cada setor, só para a fila_humana continuar
-# com um "tipo" coerente quando o ticket é recriado no setor novo.
-SETOR_PARA_TIPO_TICKET = {
-    "atendimento": "atendimento",
-    "financeiro": "pedido",
-    "comercial": "trocas",
-    "ouvidoria": "reclamacao",
-    "tecnico": "impressao",
-    "rh": "curriculo",
-    "qualidade": "reclamacao"
-}
-
 # ============================================
 # LISTAR TODAS AS SESSÕES
 # ============================================
 @router.get("/sessoes")
-async def listar_todas_sessoes():
+async def listar_todas_sessoes(search: Optional[str] = None):
     try:
         sessao_service = SessaoService()
-        sessoes = await db.db.sessoes.find().sort("data_inicio", -1).to_list(length=100)
+        # Antes: ordenava por data_inicio (data de CRIAÇÃO da sessão). Grupos
+        # são criados uma vez e reaproveitados pra sempre, então com o tempo
+        # a data_inicio deles ficava velha e o corte de 150 mais recentes
+        # (por criação) empurrava os grupos pra fora da lista - sumiam do
+        # painel mesmo com mensagem chegando todo dia. Ordenar por
+        # ultima_interacao (atividade real) resolve isso pra grupos e
+        # conversas antigas que voltaram a ficar ativas.
+        sessoes = await db.db.sessoes.find().sort("ultima_interacao", -1).to_list(length=150)
         resultado = []
         for sessao in sessoes:
             contato_id = sessao.get("contato_id")
             contato = None
-            
-            if not sessao.get("is_group") and contato_id:
+
+            if contato_id:
                 try:
                     contato = await db.db.contatos.find_one({"_id": ObjectId(contato_id)})
                 except:
                     contato = None
-            
+
+            if sessao.get("is_group"):
+                # Nome do grupo vem do contato (chat_name do WhatsApp), não
+                # do "Grupo <identificador>" salvo na sessão na criação -
+                # esse é só um fallback pra quando o contato não existe.
+                nome_cliente = (contato.get("nome") if contato else None) or sessao.get("cliente_nome") or "Grupo"
+            else:
+                nome_cliente = sessao.get("cliente_nome") or (contato.get("nome") if contato else "Desconhecido")
+
             resultado.append({
                 "sessao_id": str(sessao["_id"]),
-                "cliente": sessao.get("cliente_nome") or (contato.get("nome") if contato else "Desconhecido"),
+                "cliente": nome_cliente,
                 "telefone": sessao.get("identificador") if sessao.get("is_group") else (contato.get("telefone") if contato else "Desconhecido"),
                 "status": sessao.get("status"),
                 "estado_atual": sessao.get("estado_atual"),
@@ -94,6 +103,18 @@ async def listar_todas_sessoes():
                 "ultima_interacao": format_iso_brasilia(sessao.get("ultima_interacao")),
                 "is_group": sessao.get("is_group", False)
             })
+
+        # A busca do painel manda "search" pra essa mesma rota há tempos,
+        # mas nunca era lida aqui - o campo simplesmente não filtrava
+        # nada. Como o nome já vem resolvido do contato (join feito
+        # acima), filtra em Python em vez de tentar isso via query Mongo.
+        if search and search.strip():
+            termo = search.strip().lower()
+            resultado = [
+                r for r in resultado
+                if termo in (r["cliente"] or "").lower() or termo in (r["telefone"] or "").lower()
+            ]
+
         return {"sucesso": True, "sessoes": resultado}
     except Exception as e:
         logger.error(f"Erro ao listar sessões: {str(e)}")
@@ -124,11 +145,17 @@ async def iniciar_conversa_atendente(request: IniciarConversaRequest):
 
         contato_service = ContatoService()
         sessao_service = SessaoService()
+        whatsapp = WhatsAppAPI()
+
+        # Confirma com a própria Z-API qual é a grafia real desse número no
+        # WhatsApp (com/sem 9º dígito) antes de buscar/criar o contato -
+        # elimina duplicidade quando o atendente digita o número numa
+        # grafia diferente da que já está salva.
+        telefone = await whatsapp.resolver_telefone_whatsapp(telefone)
 
         contato = await contato_service.get_or_create_contato(telefone=telefone)
         sessao = await sessao_service.get_or_create_sessao(contato["id"], is_group=False, identificador=telefone)
 
-        whatsapp = WhatsAppAPI()
         sucesso = await whatsapp.send_text(telefone, request.mensagem)
         if not sucesso:
             raise HTTPException(status_code=502, detail="Falha ao enviar mensagem pelo WhatsApp")
@@ -363,17 +390,10 @@ async def cancelar_atendimento(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================
-# TRANSFERIR ATENDIMENTO ENTRE SETORES
+# TRANSFERIR PARA OUTRO SETOR
 # ============================================
 @router.post("/sessoes/{session_id}/transferir")
 async def transferir_setor(session_id: str, request: TransferirSetorRequest):
-    """
-    Move a sessão de um setor humano pra outro (ex: cliente pediu um
-    orçamento e virou pedido de impressão -> Atendimento manda pro
-    Técnico). Continua em atendimento humano o tempo todo - não volta
-    pro bot nem faz o cliente repetir o que já explicou. Fecha o ticket
-    antigo da fila humana e abre um novo já no setor certo.
-    """
     try:
         setor = (request.setor or "").strip().lower()
         if setor not in SETORES_VALIDOS:
@@ -397,16 +417,8 @@ async def transferir_setor(session_id: str, request: TransferirSetorRequest):
             "aguardando_atendente": True
         })
 
-        # Fecha o(s) ticket(s) pendente(s) do setor antigo e abre um novo já
-        # no setor certo - sem isso o ticket ficava "pendente" pra sempre no
-        # setor errado, ou a sessão mudava de setor mas a fila humana
-        # continuava mostrando o ticket como se fosse do setor antigo.
         await fila_service.fechar_tickets_da_sessao(session_id, motivo="transferido")
-        await fila_service.criar_ticket(
-            session_id,
-            sessao["contato_id"],
-            SETOR_PARA_TIPO_TICKET.get(setor, "atendimento")
-        )
+        await fila_service.criar_ticket(session_id, sessao["contato_id"], SETOR_PARA_TIPO_TICKET.get(setor, "atendimento"))
 
         if request.avisar_cliente:
             mensagem_service = MensagemService()
@@ -416,12 +428,7 @@ async def transferir_setor(session_id: str, request: TransferirSetorRequest):
                 mensagem=f"🔄 Seu atendimento foi transferido para o setor de *{SETORES_VALIDOS[setor]}*. Só um instante que já te atendem por aqui mesmo. 💙"
             )
 
-        return {
-            "sucesso": True,
-            "setor_anterior": setor_atual,
-            "setor_novo": setor
-        }
-
+        return {"sucesso": True, "setor_anterior": setor_atual, "setor_novo": setor}
     except HTTPException:
         raise
     except Exception as e:

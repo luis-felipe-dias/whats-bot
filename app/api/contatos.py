@@ -6,6 +6,7 @@ from app.core.database import db
 from app.services.contato_service import ContatoService
 from app.utils.helpers import now_utc
 from bson import ObjectId
+import re
 import logging
 
 router = APIRouter()
@@ -17,10 +18,27 @@ class AtualizarContatoRequest(BaseModel):
     observacoes: Optional[str] = None
 
 @router.get("/contatos")
-async def listar_contatos():
-    """Lista todos os contatos"""
+async def listar_contatos(busca: Optional[str] = None, limit: int = 200, apenas_grupos: bool = False):
+    """
+    Lista contatos, com busca por nome/telefone e filtro de grupos.
+    Antes ignorava completamente busca/limit/apenas_grupos (o painel já
+    mandava esses parâmetros há tempos, mas essa rota nunca os lia) e
+    nunca devolvia is_group - por isso o filtro "Grupos" do painel nunca
+    funcionou e a busca não filtrava nada.
+    """
     try:
-        contatos = await db.db.contatos.find().sort("data_criacao", -1).to_list(length=100)
+        query: dict = {}
+        if apenas_grupos:
+            query["is_group"] = True
+        if busca and busca.strip():
+            termo = re.escape(busca.strip())
+            query["$or"] = [
+                {"nome": {"$regex": termo, "$options": "i"}},
+                {"telefone": {"$regex": termo, "$options": "i"}}
+            ]
+
+        limit = max(1, min(limit or 200, 500))
+        contatos = await db.db.contatos.find(query).sort("ultima_interacao", -1).to_list(length=limit)
         resultado = []
         for contato in contatos:
             resultado.append({
@@ -28,6 +46,7 @@ async def listar_contatos():
                 "nome": contato.get("nome", "Desconhecido"),
                 "telefone": contato.get("telefone"),
                 "nome_personalizado": contato.get("nome_personalizado", False),
+                "is_group": contato.get("is_group", False),
                 "data_criacao": contato.get("data_criacao").isoformat() if contato.get("data_criacao") else None,
                 "ultima_interacao": contato.get("ultima_interacao").isoformat() if contato.get("ultima_interacao") else None,
                 "tags": contato.get("tags", [])

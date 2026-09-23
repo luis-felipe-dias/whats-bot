@@ -27,7 +27,15 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
         from_me = body.get("fromMe", False)
         message_id = body.get("messageId")
         is_group = body.get("isGroup", False)
-        chat_name = body.get("chatName") or body.get("senderName")
+        # Causa raiz de grupo aparecer com nome errado (de pessoa): em
+        # grupo, "chatName" é o nome DO GRUPO; quando a Z-API não manda
+        # esse campo nalgum evento, caía pro fallback "senderName" (nome
+        # de QUEM escreveu) e isso era salvo como nome do grupo - já que o
+        # contato-grupo nasce sem "nome_personalizado", cada mensagem sem
+        # chatName ia sobrescrevendo o nome certo pelo nome de quem
+        # mandou. Em grupo, sem chatName, é melhor não atualizar nada
+        # (None) do que salvar o nome errado.
+        chat_name = body.get("chatName") if is_group else (body.get("chatName") or body.get("senderName"))
         chat_lid = body.get("chatLid")
         phone = body.get("phone")
 
