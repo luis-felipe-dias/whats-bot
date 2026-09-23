@@ -5,6 +5,7 @@ from typing import Optional
 from app.services.sessao_service import SessaoService
 from app.services.mensagem_service import MensagemService
 from app.services.contato_service import ContatoService
+from app.services.fila_humana_service import FilaHumanaService
 from app.core.database import db
 from app.core.whatsapp_api import WhatsAppAPI
 from app.utils.helpers import now_utc, now_utc_naive, format_iso_brasilia
@@ -30,6 +31,37 @@ class IniciarConversaRequest(BaseModel):
     telefone: str
     mensagem: str
     atendente_nome: Optional[str] = "Atendente"
+
+class TransferirSetorRequest(BaseModel):
+    setor: str
+    atendente_nome: Optional[str] = "Atendente"
+    avisar_cliente: Optional[bool] = True
+
+# Setores reais que a Peper e o painel usam (ver MAPA_SETORES em
+# sessao_service.py). "qualidade" existe no mapeamento do painel
+# (sugestões) mas ainda não tem gatilho no bot - fica disponível aqui
+# mesmo assim, para transferência manual.
+SETORES_VALIDOS = {
+    "atendimento": "Atendimento",
+    "financeiro": "Financeiro",
+    "comercial": "Comercial",
+    "ouvidoria": "Ouvidoria",
+    "tecnico": "Técnico",
+    "rh": "RH",
+    "qualidade": "Qualidade"
+}
+
+# Tipo de ticket equivalente a cada setor, só para a fila_humana continuar
+# com um "tipo" coerente quando o ticket é recriado no setor novo.
+SETOR_PARA_TIPO_TICKET = {
+    "atendimento": "atendimento",
+    "financeiro": "pedido",
+    "comercial": "trocas",
+    "ouvidoria": "reclamacao",
+    "tecnico": "impressao",
+    "rh": "curriculo",
+    "qualidade": "reclamacao"
+}
 
 # ============================================
 # LISTAR TODAS AS SESSÕES
@@ -328,4 +360,70 @@ async def cancelar_atendimento(session_id: str):
         raise
     except Exception as e:
         logger.error(f"Erro ao cancelar atendimento: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================
+# TRANSFERIR ATENDIMENTO ENTRE SETORES
+# ============================================
+@router.post("/sessoes/{session_id}/transferir")
+async def transferir_setor(session_id: str, request: TransferirSetorRequest):
+    """
+    Move a sessão de um setor humano pra outro (ex: cliente pediu um
+    orçamento e virou pedido de impressão -> Atendimento manda pro
+    Técnico). Continua em atendimento humano o tempo todo - não volta
+    pro bot nem faz o cliente repetir o que já explicou. Fecha o ticket
+    antigo da fila humana e abre um novo já no setor certo.
+    """
+    try:
+        setor = (request.setor or "").strip().lower()
+        if setor not in SETORES_VALIDOS:
+            raise HTTPException(status_code=400, detail=f"Setor inválido. Use: {', '.join(SETORES_VALIDOS.keys())}")
+
+        sessao = await db.db.sessoes.find_one({"_id": ObjectId(session_id)})
+        if not sessao:
+            raise HTTPException(status_code=404, detail="Sessão não encontrada")
+
+        setor_atual = (sessao.get("setor_responsavel") or "atendimento").lower()
+        if setor_atual == setor:
+            raise HTTPException(status_code=400, detail=f"Essa sessão já está no setor {SETORES_VALIDOS[setor]}")
+
+        sessao_service = SessaoService()
+        fila_service = FilaHumanaService()
+
+        await sessao_service.atualizar_sessao(session_id, {
+            "setor_responsavel": setor,
+            "status": "humano",
+            "human_response_sent": False,
+            "aguardando_atendente": True
+        })
+
+        # Fecha o(s) ticket(s) pendente(s) do setor antigo e abre um novo já
+        # no setor certo - sem isso o ticket ficava "pendente" pra sempre no
+        # setor errado, ou a sessão mudava de setor mas a fila humana
+        # continuava mostrando o ticket como se fosse do setor antigo.
+        await fila_service.fechar_tickets_da_sessao(session_id, motivo="transferido")
+        await fila_service.criar_ticket(
+            session_id,
+            sessao["contato_id"],
+            SETOR_PARA_TIPO_TICKET.get(setor, "atendimento")
+        )
+
+        if request.avisar_cliente:
+            mensagem_service = MensagemService()
+            await mensagem_service.enfileirar_resposta(
+                contato_id=sessao["contato_id"],
+                sessao_id=session_id,
+                mensagem=f"🔄 Seu atendimento foi transferido para o setor de *{SETORES_VALIDOS[setor]}*. Só um instante que já te atendem por aqui mesmo. 💙"
+            )
+
+        return {
+            "sucesso": True,
+            "setor_anterior": setor_atual,
+            "setor_novo": setor
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao transferir setor: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -93,7 +93,7 @@ class StateMachine:
                 }
             elif msg_clean in ["promoções", "promocoes", "ofertas", "2"]:
                 return "menu_principal", {
-                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\n👉 https://yupaper.com.br/categoria/promocoes_inverno/\n\nAproveite! 💙",
+                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\n👉 https://yupaper.com.br/ofertas/\n\nAproveite! 💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["site", "siteyup", "3"]:
