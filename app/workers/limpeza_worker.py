@@ -68,18 +68,24 @@ class LimpezaWorker:
             
             for sessao in sessoes_inativas:
                 await self._remover_sessao(sessao, "inativa")
-            
-            # 3. Humanas respondidas
+
+            # 3. Humanas respondidas - o Pablo confirmou que quer manter essa
+            # limpeza (cliente sumiu por 3h depois do atendente responder).
+            # O bug real era só a sessão iniciada pelo atendente nascer como
+            # status "ativa"/setor None (igual sessão de bot abandonada) em
+            # vez de "humano" - já corrigido em /sessoes/iniciar. Com isso
+            # corrigido, essa limpeza volta a valer só pro caso que ela
+            # sempre foi pensada pra pegar: conversa realmente parada.
             sessoes_humanas = await db.db.sessoes.find({
                 "status": {"$in": ["humano", "aguardando_atendente"]},
                 "human_response_sent": True,
                 "ultima_interacao": {"$lt": limite_3h},
                 "is_group": {"$ne": True}
             }).to_list(length=None)
-            
+
             for sessao in sessoes_humanas:
                 await self._remover_sessao(sessao, "humana_respondida")
-            
+
             total = len(sessoes_finalizadas) + len(sessoes_inativas) + len(sessoes_humanas)
             if total > 0:
                 logger.info(f"🗑️ Limpeza concluída: {total} sessões removidas")
