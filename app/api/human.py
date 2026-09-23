@@ -162,20 +162,25 @@ async def iniciar_conversa_atendente(request: IniciarConversaRequest):
             raise HTTPException(status_code=502, detail="Falha ao enviar mensagem pelo WhatsApp")
 
         bot_suspenso_ate = now_utc_naive() + timedelta(minutes=30)
-        # status/setor_responsavel ficavam "ativa"/None (valor de sessão nova
-        # criada por get_or_create_sessao) porque nada aqui setava - igual
-        # a uma sessão de funil de bot abandonada aos olhos do
-        # limpeza_worker, que apaga isso 3h depois. Era exatamente por
-        # isso que uma conversa iniciada pelo atendente sumia (e virava
-        # sessão nova de novo no próximo contato) se o cliente demorasse
-        # pra responder. Marcando como "humano" com setor, fica igual a
-        # qualquer outro atendimento humano em andamento.
+        # setor_responsavel ficava None (valor de sessão nova criada por
+        # get_or_create_sessao) porque nada aqui setava - igual a uma
+        # sessão de funil de bot abandonada aos olhos do limpeza_worker
+        # (categoria "ativas inativas": status ativa + setor None), que
+        # apaga isso 3h depois. Era isso que fazia a conversa iniciada
+        # pelo atendente sumir e virar sessão nova de novo no próximo
+        # contato, se o cliente demorasse pra responder. Só setar o setor
+        # já resolve - NÃO mudar status pra "humano" aqui: o webhook trata
+        # status=="humano" como "nunca mais processar bot" (não olha pro
+        # bot_suspenso_ate), o que quebraria o "bot volta sozinho depois
+        # dos 30min" que essa rota promete no próprio docstring. Enquanto
+        # bot_suspenso_ate estiver no futuro o webhook já segura o bot de
+        # qualquer forma (ver webhook.py linha ~312), então "ativa" aqui
+        # está certo.
         await sessao_service.atualizar_sessao(sessao["id"], {
             "bot_suspenso_ate": bot_suspenso_ate,
             "iniciada_por_atendente": True,
             "human_response_sent": True,
             "aguardando_atendente": False,
-            "status": "humano",
             "setor_responsavel": sessao.get("setor_responsavel") or "atendimento"
         })
 

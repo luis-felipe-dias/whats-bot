@@ -60,7 +60,9 @@ class SessaoService:
             
             if sessao:
                 logger.info(f"📌 Sessão existente: {sessao['_id']}")
-                return self._format_sessao(sessao)
+                formatada = self._format_sessao(sessao)
+                formatada["_recem_criada"] = False
+                return formatada
             
             logger.info(f"✨ Criando nova sessão para contato: {contato_id}")
             
@@ -104,8 +106,16 @@ class SessaoService:
             result = await db.db.sessoes.insert_one(sessao_data)
             sessao_data["_id"] = result.inserted_id
             logger.info(f"✅ Sessão criada: {result.inserted_id}")
-            
-            return self._format_sessao(sessao_data)
+
+            formatada = self._format_sessao(sessao_data)
+            # Marca que essa sessão acabou de nascer - o state_machine usa
+            # isso pra reconhecer "início de conversa" e mostrar as boas-
+            # vindas na primeira mensagem, qualquer que seja o texto
+            # (antes só reconhecia uma lista fixa tipo "oi"/"olá" - se o
+            # cliente abrisse com qualquer outra frase, ex "entendo", caía
+            # direto em "OPÇÃO INVÁLIDA").
+            formatada["_recem_criada"] = True
+            return formatada
             
         except Exception as e:
             logger.error(f"❌ Erro ao buscar/criar sessão: {str(e)}")
@@ -204,7 +214,16 @@ class SessaoService:
             
             logger.info(f"📊 Status atual: status={status}, human_response_sent={human_response_sent}")
             
-            if status in ["humano", "aguardando_atendente"]:
+            # "ativa" entra aqui também por causa da sessão iniciada pelo
+            # atendente pelo painel (fica "ativa" de propósito, pro bot
+            # poder voltar sozinho depois dos 30min - ver human.py e
+            # webhook.py). Sem isso, a resposta do cliente pra uma
+            # conversa que o atendente puxou nunca marcava
+            # aguardando_atendente=True, e o toggle "aguardando pessoa vs
+            # atendente" não funcionava pra esse caso. Não afeta sessão de
+            # bot pura porque human_response_sent só fica True quando um
+            # humano de fato mandou mensagem (nunca acontece no fluxo só-bot).
+            if status in ["humano", "aguardando_atendente", "ativa"]:
                 if human_response_sent == True:
                     await self.atualizar_sessao(sessao_id, {
                         "aguardando_atendente": True,

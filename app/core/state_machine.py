@@ -41,9 +41,17 @@ class StateMachine:
         # ============================================
         # SAUDAÇÃO
         # ============================================
-        if msg_clean in ["olá", "ola", "oi", "bomdia", "boatarde", "boanoite", "tudobem", "inicio", "menu", "start"]:
+        # "sessão recém-criada" = primeira mensagem de uma conversa nova.
+        # Antes só reconhecia início de conversa por essa lista fixa de
+        # palavras exatas - se o cliente abrisse com qualquer outra coisa
+        # (ex: "entendo", "bom dia, preciso de uma informação") caía direto
+        # em "OPÇÃO INVÁLIDA" em vez de receber as boas-vindas. Com o flag
+        # de sessão nova, a primeira mensagem sempre mostra o menu inicial,
+        # seja qual for o texto.
+        eh_inicio_de_conversa = sessao.get("_recem_criada", False) and estado_atual == "menu_principal"
+        if eh_inicio_de_conversa or msg_clean in ["olá", "ola", "oi", "bomdia", "boatarde", "boanoite", "tudobem", "inicio", "menu", "start"]:
             return "menu_principal", {
-                "texto": "‼️ *EM TESTE* - Agradecemos a compreensão de todos! 💙\n\nOi! Eu sou a Peper, assistente virtual da Yup.\n\nSabe aquele \"Yuuup!\" que uma criança diz quando encontra algo que a encanta? ✨ Foi essa alegria espontânea que inspirou o nome da nossa loja.\n\nQueremos que cada visita à Yup desperte esse mesmo sentimento: descobrir, criar, aprender e se divertir!\n\nAgora me conte: como posso ajudar você hoje? 😊",
+                "texto": "Oi! Eu sou a Peper, assistente virtual da Yup 💙\n\nSabe aquele \"Yuuup!\" que uma criança diz quando encontra algo que a encanta? ✨ Foi essa alegria espontânea que inspirou o nome da nossa loja.\n\nQueremos que cada visita à Yup desperte esse mesmo sentimento: descobrir, criar, aprender e se divertir!\n\nAgora me conte: como posso ajudar você hoje? 😊",
                 "botoes": ["🛍️ PROMOÇÕES", "🖨️ SERVIÇOS", "🤝 ATENDIMENTO", "📍 INFORMAÇÕES", "💼 TRABALHE CONOSCO"]
             }
         
@@ -93,7 +101,7 @@ class StateMachine:
                 }
             elif msg_clean in ["promoções", "promocoes", "ofertas", "2"]:
                 return "menu_principal", {
-                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\n👉 https://yupaper.com.br/ofertas/\n\nAproveite! 💙",
+                    "texto": "🔥 *PROMOÇÕES DA SEMANA* 🔥\n\n👉 https://yupaper.com.br/categoria/promocoes_inverno/\n\nAproveite! 💙",
                     "botoes": ["◀️ VOLTAR"]
                 }
             elif msg_clean in ["site", "siteyup", "3"]:
