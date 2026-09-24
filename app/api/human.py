@@ -99,6 +99,10 @@ async def listar_todas_sessoes(search: Optional[str] = None):
                 "estado_atual": sessao.get("estado_atual"),
                 "setor_responsavel": sessao.get("setor_responsavel"),
                 "aguardando_atendente": sessao.get("aguardando_atendente", False),
+                # Desde quando o cliente está esperando resposta - diferente
+                # de ultima_interacao (última mensagem, seja de quem for).
+                # É o que o badge vermelho do painel deve mostrar.
+                "aguardando_desde": format_iso_brasilia(sessao.get("aguardando_desde")) if sessao.get("aguardando_desde") else None,
                 "data_inicio": format_iso_brasilia(sessao.get("data_inicio")),
                 "ultima_interacao": format_iso_brasilia(sessao.get("ultima_interacao")),
                 "is_group": sessao.get("is_group", False),

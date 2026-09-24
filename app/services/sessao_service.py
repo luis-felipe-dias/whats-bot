@@ -150,9 +150,14 @@ class SessaoService:
                 "menu_anterior": menu_anterior,
                 "setor_responsavel": setor,
                 "human_response_sent": False,
-                "aguardando_atendente": True
+                "aguardando_atendente": True,
+                # Marca desde quando o cliente está esperando atendente -
+                # é isso que o badge vermelho do painel mostra (não confundir
+                # com ultima_interacao, que é só "quando foi a última
+                # mensagem", usado no texto "há cerca de X" ao lado).
+                "aguardando_desde": now_utc()
             })
-            
+
             logger.info(f"👤 Atendimento humano ativado - Menu: '{menu_anterior}' -> Setor: {setor}")
             return setor
             
@@ -168,6 +173,7 @@ class SessaoService:
                 "setor_responsavel": None,
                 "human_response_sent": False,
                 "aguardando_atendente": False,
+                "aguardando_desde": None,
                 "last_menu": None,
                 "menu_anterior": None
             })
@@ -185,6 +191,7 @@ class SessaoService:
             await self.atualizar_sessao(sessao_id, {
                 "human_response_sent": True,
                 "aguardando_atendente": False,
+                "aguardando_desde": None,
                 "atendente_id": atendente_id
             })
             logger.info(f"💬 Atendente respondeu - aguardando_atendente=False")
@@ -227,7 +234,8 @@ class SessaoService:
                 if human_response_sent == True:
                     await self.atualizar_sessao(sessao_id, {
                         "aguardando_atendente": True,
-                        "human_response_sent": False
+                        "human_response_sent": False,
+                        "aguardando_desde": now_utc()
                     })
                     logger.info(f"📨 Cliente enviou mensagem após resposta - aguardando_atendente=True")
                 else:
@@ -426,6 +434,7 @@ class SessaoService:
                 "estado_atual": sessao.get("estado_atual"),
                 "setor_responsavel": sessao.get("setor_responsavel"),
                 "aguardando_atendente": sessao.get("aguardando_atendente", False),
+                "aguardando_desde": format_iso_brasilia(sessao.get("aguardando_desde")) if sessao.get("aguardando_desde") else None,
                 "data_inicio": format_iso_brasilia(sessao.get("data_inicio")),
                 "ultima_interacao": format_iso_brasilia(sessao.get("ultima_interacao")),
                 "menu_anterior": sessao.get("menu_anterior"),
