@@ -20,7 +20,7 @@ Escopo do MVP, de propósito curto:
 
 import json
 import logging
-from datetime import datetime, timezone as _tz
+from datetime import datetime, timedelta, timezone as _tz
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -124,10 +124,18 @@ Você NÃO é um robô de menu. Você conversa como uma atendente boa de balcão
 
 COMO VOCÊ ESCREVE
 - Mensagem de WhatsApp: curta. Duas ou três linhas resolvem quase tudo.
-- Uma pergunta por mensagem, no máximo.
 - Sem "prezado cliente", sem "estou à disposição", sem bloco de texto.
 - Emoji com parcimônia: no máximo um, e só quando couber.
 - Nunca diga que você é uma IA ou um sistema. Você é a Peper, da YUP!.
+
+CADA MENSAGEM SUA CUSTA DINHEIRO
+Desde outubro de 2026 a Meta cobra por mensagem entregue, inclusive as
+suas respostas. Então:
+- Quando precisar de mais de uma informação, PEÇA TUDO NUMA MENSAGEM SÓ.
+  Certo: "Quantas páginas, colorido ou preto e branco, e frente e verso?"
+  Errado: três mensagens seguidas com uma pergunta cada.
+- Nunca mande "ok", "entendi", "um momento" sozinhos. Junte com o conteúdo.
+- Não repita o que o cliente acabou de dizer para confirmar.
 
 REGRA QUE NÃO SE QUEBRA — PREÇO E ESTOQUE
 - Você NUNCA inventa, estima ou "lembra" preço nem quantidade.
@@ -136,6 +144,13 @@ REGRA QUE NÃO SE QUEBRA — PREÇO E ESTOQUE
 - Se a ferramenta devolver fonte "espelho" em vez de "tempo_real", diga o valor e avise que confirma na hora — ex.: "tá R$ 12,90 aqui, só vou confirmar certinho e te falo".
 - Se a ferramenta falhar, NÃO adivinhe: chame `chamar_humano`.
 - Se a busca achar muitos itens, peça para o cliente especificar (marca, tamanho, cor) em vez de listar tudo.
+
+PRODUTO x SERVIÇO — o saldo significa coisas diferentes
+- PRODUTO (caderno, cola, brinquedo): saldo 0 quer dizer que acabou. Diga que
+  está em falta e ofereça encomendar ou avisar quando chegar.
+- SERVIÇO (impressão, cópia, encadernação, plastificação): saldo 0 é o normal,
+  porque não é item de prateleira. NUNCA diga que um serviço está em falta.
+  O preço vale do mesmo jeito.
 
 QUANDO CHAMAR HUMANO (`chamar_humano`)
 - Reclamação, troca, defeito, cobrança, nota fiscal.
@@ -221,12 +236,8 @@ async def _enviar(telefone: str, texto: str, botoes: Optional[List[str]] = None)
     Escolhe o canal pelo IA_CANAL. No MVP é "meta" (número de teste), e a
     produção segue na Z-API sem saber que esta faixa existe.
     """
-    if settings.ia_canal == "meta":
-        from app.core.meta_cloud_api import meta_api
-        api = meta_api
-    else:
-        from app.core.whatsapp_api import WhatsAppAPI
-        api = WhatsAppAPI()
+    from app.core.canal import api_por_telefone
+    api = await api_por_telefone(telefone)
 
     if botoes:
         return bool(await api.send_interactive(telefone, texto, botoes))
@@ -412,6 +423,26 @@ async def ia_responder(
         await _transferir(sessao_id, contato_id, telefone, passar_para_humano)
 
 
+async def _posicao_na_fila(sessao_id: str) -> int:
+    """
+    Quantas pessoas estão na frente. Conta tickets ainda pendentes criados
+    ANTES do desta sessão. Devolve 0 quando não dá para saber.
+    """
+    try:
+        meu = await db.db.fila_humana.find_one(
+            {"sessao_id": sessao_id, "status": "pendente"}, sort=[("data_criacao", -1)]
+        )
+        if not meu:
+            return 0
+        return await db.db.fila_humana.count_documents({
+            "status": "pendente",
+            "data_criacao": {"$lt": meu["data_criacao"]},
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Não consegui calcular a posição na fila: %s", e)
+        return 0
+
+
 async def _transferir(sessao_id: str, contato_id: str, telefone: str, motivo: str) -> None:
     from app.services.fila_humana_service import FilaHumanaService
     from app.services.sessao_service import SessaoService
@@ -432,6 +463,81 @@ async def _transferir(sessao_id: str, contato_id: str, telefone: str, motivo: st
     except Exception as e:  # noqa: BLE001
         logger.error("Falha ao transferir para humano: %s", e)
 
+    # A posição entra na MESMA mensagem da transferência, nunca numa
+    # segunda. Cada mensagem é cobrada, e um "você é o 2º da fila"
+    # sozinho custa igual a uma resposta de verdade.
     texto = "Vou te passar pra uma pessoa da equipe aqui, só um instante 💙"
+    posicao = await _posicao_na_fila(sessao_id)
+    if posicao == 1:
+        texto = ("Vou te passar pra uma pessoa da equipe 💙 Tem uma pessoa "
+                 "na frente, então pode demorar alguns minutinhos.")
+    elif posicao > 1:
+        texto = (f"Vou te passar pra uma pessoa da equipe 💙 Tem {posicao} pessoas "
+                 "na frente, então pode demorar um pouquinho.")
+
     if await _enviar(telefone, texto):
         await _registrar_resposta(sessao_id, contato_id, texto)
+
+
+# ---------------------------------------------------------------------- #
+# Volta do atendimento humano para a IA
+# ---------------------------------------------------------------------- #
+
+# Palavras que o cliente pode mandar para retomar com a Peper.
+PALAVRAS_VOLTAR = {"menu", "bot", "peper", "voltar ao menu", "atendimento automatico"}
+
+
+def cliente_pediu_bot(mensagem: str) -> bool:
+    return (mensagem or "").strip().lower().strip("!.?") in PALAVRAS_VOLTAR
+
+
+async def devolver_para_ia(sessao_id: str, motivo: str = "atendente devolveu") -> bool:
+    """
+    Tira a sessão do atendimento humano e devolve para a Peper.
+
+    Usada por três caminhos: o botão no painel, a palavra-chave do cliente
+    e a devolução automática por inatividade. Fecha os tickets abertos
+    junto — senão a fila do painel enche de ticket fantasma.
+    """
+    from app.services.fila_humana_service import FilaHumanaService
+    from app.services.sessao_service import SessaoService
+
+    try:
+        await SessaoService().atualizar_sessao(sessao_id, {
+            "status": "ativa",
+            "atendente_id": None,
+            "aguardando_atendente": False,
+            "aguardando_desde": None,
+            "human_response_sent": False,
+            "bot_suspenso_ate": None,
+            "dados_contexto.devolvido_para_ia": motivo,
+        })
+        await FilaHumanaService().fechar_tickets_da_sessao(sessao_id, motivo="devolvido_ao_bot")
+        logger.info("Sessão %s devolvida para a IA (%s)", sessao_id, motivo)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.error("Falha ao devolver sessão %s para a IA: %s", sessao_id, e)
+        return False
+
+
+async def devolucao_automatica_elegivel(sessao: Dict[str, Any]) -> bool:
+    """
+    Verdadeiro quando o cliente foi para a fila, NINGUÉM respondeu, e já
+    passou IA_MINUTOS_RETOMADA.
+
+    Só vale enquanto nenhum atendente respondeu: `aguardando_desde` é
+    limpo na primeira resposta humana. Se alguém já está no atendimento,
+    a IA não atropela — mesmo que demore.
+    """
+    if not settings.ia_retomar_apos_minutos:
+        return False
+    if not sessao.get("aguardando_atendente"):
+        return False
+    desde = sessao.get("aguardando_desde")
+    if not desde:
+        return False
+    if desde.tzinfo is not None:
+        desde = desde.replace(tzinfo=None)
+    limite = timedelta(minutes=settings.ia_retomar_apos_minutos)
+    from app.utils.helpers import now_utc_naive
+    return (now_utc_naive() - desde) >= limite

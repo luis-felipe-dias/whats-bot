@@ -171,6 +171,9 @@ async def _tratar_mensagens(valor: Dict[str, Any], background_tasks: BackgroundT
             arquivo,
             mime,
             legenda,
+            False,        # is_status_reply
+            None,         # reference_message_id
+            "meta",       # canal — define por onde a resposta vai sair
         )
 
 

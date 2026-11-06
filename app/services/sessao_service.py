@@ -365,6 +365,31 @@ class SessaoService:
                     return {"success": False, "error": "Telefone não encontrado"}
                 logger.info(f"📤 Enviando mensagem para contato: {telefone_destino}")
             
+            # ENVIA PRIMEIRO, grava depois.
+            #
+            # Antes era o contrário: a mensagem ia para o histórico, a
+            # sessão era marcada como respondida, e só então tentava-se o
+            # envio. Quando o envio falhava, o atendente via a mensagem
+            # no painel como se tivesse saído, e o cliente nunca recebia.
+            #
+            # E o canal vem da sessão/contato, não mais fixo na Z-API: a
+            # conversa que entra pela Meta tem que ser respondida pela
+            # Meta, senão a resposta sai por um canal que não alcança o
+            # cliente.
+            from app.core.canal import api_de, canal_de
+
+            whatsapp = api_de(sessao=sessao)
+            sucesso = await whatsapp.send_text(telefone_destino, mensagem)
+
+            if not sucesso:
+                logger.error(
+                    f"❌ Falha ao enviar para {telefone_destino} pelo canal "
+                    f"'{canal_de(sessao=sessao)}' - nada foi gravado no histórico"
+                )
+                return {"success": False, "message": "Falha ao enviar"}
+
+            logger.info(f"✅ Mensagem enviada com sucesso para {telefone_destino}")
+
             mensagem_data = {
                 "sessao_id": sessao_id,
                 "contato_id": sessao["contato_id"],
@@ -378,24 +403,15 @@ class SessaoService:
             }
             await db.db.mensagens.insert_one(mensagem_data)
             logger.info(f"✅ Mensagem do atendente salva no histórico")
-            
+
             await db.db.mensagens.update_many(
                 {"sessao_id": sessao_id, "direcao": "recebida", "respondida": {"$ne": True}},
                 {"$set": {"respondida": True}}
             )
-            
+
             await self.registrar_resposta_atendente(sessao_id)
-            
-            from app.core.whatsapp_api import WhatsAppAPI
-            whatsapp = WhatsAppAPI()
-            sucesso = await whatsapp.send_text(telefone_destino, mensagem)
-            
-            if sucesso:
-                logger.info(f"✅ Mensagem enviada com sucesso para {telefone_destino}")
-            else:
-                logger.error(f"❌ Falha ao enviar mensagem para {telefone_destino}")
-            
-            return {"success": sucesso, "message": "Mensagem enviada" if sucesso else "Falha ao enviar"}
+
+            return {"success": True, "message": "Mensagem enviada"}
             
         except Exception as e:
             logger.error(f"Erro ao enviar mensagem humana: {str(e)}")

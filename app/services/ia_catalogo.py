@@ -81,9 +81,22 @@ async def _get(caminho: str, params: Dict[str, Any] | None = None) -> Dict[str, 
 # ---------------------------------------------------------------------- #
 
 async def buscar_produto(termo: str, limite: int = 5) -> Dict[str, Any]:
+    """
+    SEM filtro de estoque, de propósito.
+
+    A primeira versão mandava filtro_estoque="com_estoque" e isso
+    escondia TODO serviço do catálogo: impressão, cópia, encadernação e
+    plastificação têm saldo zero por natureza, porque não são itens de
+    prateleira. O cliente perguntava "impressão" e a Peper não achava
+    nada, concluía que não sabia o preço e passava para a equipe.
+
+    Agora vem tudo e o saldo vai junto no resultado. Quem decide o que
+    dizer é a IA, orientada pelo prompt: saldo zero em produto é "acabou",
+    saldo zero em serviço não quer dizer nada.
+    """
     dados = await _get(
         "/estoque/produtos/buscar",
-        {"termo": termo, "limite": limite, "filtro_estoque": "com_estoque"},
+        {"termo": termo, "limite": limite},
     )
     if not dados or not dados.get("sucesso"):
         return {"ok": False, "motivo": "catalogo_indisponivel", "produtos": []}

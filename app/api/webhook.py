@@ -199,7 +199,7 @@ async def process_webhook_message_with_semaphore(*args, **kwargs):
     async with _semaphore:
         await process_webhook_message(*args, **kwargs)
 
-async def process_webhook_message(chat_lid: str, telefone: str, identificador: str, mensagem: str, message_id: str, tipo: str, from_me: bool, sender: str, is_group: bool, chat_name: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, remetente_nome: str = None, remetente_telefone: str = None, is_status_reply: bool = False, reference_message_id: str = None):
+async def process_webhook_message(chat_lid: str, telefone: str, identificador: str, mensagem: str, message_id: str, tipo: str, from_me: bool, sender: str, is_group: bool, chat_name: str, file_url: str = None, file_name: str = None, mime_type: str = None, caption: str = None, remetente_nome: str = None, remetente_telefone: str = None, is_status_reply: bool = False, reference_message_id: str = None, canal: str = "zapi"):
     """Processa mensagem do webhook - OTIMIZADO"""
     try:
         # Buscar ou criar contato (com cache em memória)
@@ -228,6 +228,13 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
             identificador=identificador
         )
         
+        # Grava por onde a conversa ENTROU. Toda saída (painel, bot, IA)
+        # lê isso para responder pelo mesmo canal. Sem esta linha, uma
+        # conversa da Meta recebe resposta pela Z-API e o cliente nunca vê.
+        from app.core.canal import gravar_canal
+        await gravar_canal(contato["id"], sessao["id"], canal)
+        sessao["canal"] = canal
+
         # Verificar duplicata de atendente (rápido)
         if from_me:
             limite = now_utc() - timedelta(seconds=60)
@@ -302,6 +309,39 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
             
             # ATENDIMENTO HUMANO
             if sessao.get("status") == "humano":
+                from app.services.ia_handler import (
+                    cliente_pediu_bot,
+                    devolucao_automatica_elegivel,
+                    devolver_para_ia,
+                    ia_deve_atender,
+                )
+
+                # Só faz sentido devolver para a IA se a IA atende este número.
+                if ia_deve_atender(telefone):
+                    motivo = None
+                    if cliente_pediu_bot(mensagem):
+                        motivo = "cliente pediu o bot"
+                    elif await devolucao_automatica_elegivel(sessao):
+                        # Ninguém pegou o atendimento no prazo. Em vez de
+                        # deixar o cliente falando sozinho (que foi o que
+                        # aconteceu no primeiro teste), a Peper reassume.
+                        motivo = "ninguem atendeu no prazo"
+
+                    if motivo and await devolver_para_ia(sessao["id"], motivo):
+                        sessao["status"] = "ativa"
+                        sessao["aguardando_atendente"] = False
+                        from app.services.ia_handler import ia_responder
+                        await ia_responder(
+                            sessao=sessao,
+                            contato=contato,
+                            telefone=telefone,
+                            mensagem=mensagem,
+                            tipo=tipo,
+                            file_url=file_url,
+                            mime_type=mime_type,
+                        )
+                        return
+
                 await sessao_service.cliente_enviou_mensagem(sessao["id"])
                 return
 

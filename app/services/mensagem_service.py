@@ -147,10 +147,17 @@ class MensagemService:
                 logger.error(f"Contato não encontrado: {contato_id}")
                 return None
             
+            # O canal vem do contato/sessão. `self.whatsapp_api` continua
+            # existindo para quem já dependia dele, mas o envio passa por
+            # aqui — senão a resposta de uma conversa que entrou pela Meta
+            # sai pela Z-API e o cliente não recebe nada.
+            from app.core.canal import api_de
+            api = api_de(contato=contato)
+
             if botoes and len(botoes) > 0:
-                sucesso = await self.whatsapp_api.send_interactive(contato["telefone"], mensagem, botoes)
+                sucesso = await api.send_interactive(contato["telefone"], mensagem, botoes)
             else:
-                sucesso = await self.whatsapp_api.send_text(contato["telefone"], mensagem)
+                sucesso = await api.send_text(contato["telefone"], mensagem)
             
             if sucesso:
                 # Registrar mensagem enviada pelo bot (Pepper)

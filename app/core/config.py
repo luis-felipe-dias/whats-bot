@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Teto de consultas ao ERP por conversa. A cota do Olist é POR CONTA
     # e é dividida com o sync de reposição da Daiane.
     ia_max_consultas_erp: int = 3
+    # Minutos sem NENHUM atendente responder até a Peper reassumir a
+    # conversa. 0 desliga a devolução automática.
+    ia_retomar_apos_minutos: int = 15
 
     # OpenAI
     openai_api_key: str = ""

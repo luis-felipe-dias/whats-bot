@@ -306,8 +306,10 @@ async def enviar_midia_humana(session_id: str, request: MensagemMidiaRequest):
         if request.tipo_midia not in tipos_validos:
             raise HTTPException(status_code=400, detail=f"Tipo de mídia inválido. Use: {', '.join(tipos_validos)}")
         
-        whatsapp = WhatsAppAPI()
-        
+        # Canal da sessão, não mais Z-API fixa (ver app/core/canal.py).
+        from app.core.canal import api_por_sessao_id
+        whatsapp = await api_por_sessao_id(session_id)
+
         sucesso = False
         if request.tipo_midia == "imagem":
             sucesso = await whatsapp.send_image(contato_telefone, request.midia_url, request.legenda or "")
@@ -361,6 +363,47 @@ async def finalizar_sessao(session_id: str):
     except Exception as e:
         logger.error(f"Erro ao finalizar sessão: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================
+# DEVOLVER AO BOT (Peper IA)
+# ============================================
+@router.post("/sessoes/{session_id}/devolver-ao-bot")
+async def devolver_ao_bot(session_id: str):
+    """
+    Tira a sessão do atendimento humano e devolve para a Peper.
+
+    É o botão "Devolver ao bot" do painel. Existe porque, sem ele, uma
+    sessão que entrou em atendimento humano ficava presa ali para sempre:
+    o bot calava e só uma finalização manual encerrava a conversa.
+
+    Não confundir com /finalizar (encerra a conversa) nem com /cancelar
+    (o cliente desistiu). Aqui a conversa continua — só muda quem atende.
+    """
+    try:
+        from app.services.ia_handler import devolver_para_ia
+
+        sessao = await db.db.sessoes.find_one({"_id": ObjectId(session_id)})
+        if not sessao:
+            raise HTTPException(status_code=404, detail="Sessão não encontrada")
+
+        if sessao.get("status") != "humano":
+            return {
+                "sucesso": False,
+                "message": f"A sessão não está em atendimento humano (status: {sessao.get('status')})",
+            }
+
+        ok = await devolver_para_ia(session_id, motivo="atendente devolveu pelo painel")
+        if not ok:
+            raise HTTPException(status_code=500, detail="Falha ao devolver a sessão")
+
+        return {"sucesso": True, "message": "Sessão devolvida para a Peper"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao devolver sessão ao bot: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============================================
 # CANCELAR ATENDIMENTO
