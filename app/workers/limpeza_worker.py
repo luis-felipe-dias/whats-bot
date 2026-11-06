@@ -44,7 +44,7 @@ class LimpezaWorker:
     async def _limpar_sessoes_antigas(self):
         try:
             agora = datetime.now(timezone.utc)
-            limite_3h = agora - timedelta(hours=3)
+            limite_3h = agora - timedelta(days=7)  # MVP: era 3h e apagava o contexto do dia
             
             # NUNCA REMOVER GRUPOS
             # 1. Finalizadas

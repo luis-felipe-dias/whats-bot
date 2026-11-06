@@ -171,9 +171,12 @@ async def _tratar_mensagens(valor: Dict[str, Any], background_tasks: BackgroundT
             arquivo,
             mime,
             legenda,
-            False,        # is_status_reply
-            None,         # reference_message_id
-            "meta",       # canal — define por onde a resposta vai sair
+            # POR NOME, não por posição. Entre `caption` e `canal` existem
+            # remetente_nome, remetente_telefone, is_status_reply e
+            # reference_message_id — passar "meta" na fila posicional fazia
+            # o canal virar is_status_reply e a resposta sair pela Z-API,
+            # num canal que não alcança o cliente.
+            canal="meta",
         )
 
 
