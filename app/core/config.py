@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_model_audio: str = "whisper-1"
+    openai_model_embedding: str = "text-embedding-3-small"
     openai_temperature: float = 0.6
     openai_max_tokens: int = 350
 

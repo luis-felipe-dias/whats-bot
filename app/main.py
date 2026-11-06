@@ -6,6 +6,7 @@ import logging
 from app.core.database import connect_to_mongo, close_mongo_connection
 from app.api import webhook, contatos, fila, estatisticas, admin
 from app.api import webhook_meta
+from app.api import curadoria
 from app.api.human import router as human_router
 from app.workers.envio_worker import start_envio_worker, stop_envio_worker
 from app.workers.limpeza_worker import start_limpeza_worker, stop_limpeza_worker
@@ -21,6 +22,9 @@ async def lifespan(app: FastAPI):
     await start_envio_worker()
     await start_limpeza_worker()
     await start_contato_sync_worker()
+    # Carrega a base aprovada para a memoria uma vez, na subida.
+    from app.core.conhecimento import recarregar
+    await recarregar()
     yield
     await stop_envio_worker()
     await stop_limpeza_worker()
@@ -50,6 +54,7 @@ app.include_router(webhook_meta.router, prefix="/bot/yup", tags=["Webhook Meta"]
 app.include_router(contatos.router, prefix="/bot/yup", tags=["Contatos"])
 app.include_router(fila.router, prefix="/bot/yup", tags=["Filas"])
 app.include_router(estatisticas.router, prefix="/bot/yup", tags=["Estatísticas"])
+app.include_router(curadoria.router, prefix="/curadoria", tags=["Curadoria"])
 app.include_router(admin.router, prefix="/admin", tags=["Administrativo"])
 app.include_router(human_router, prefix="/human", tags=["Atendimento Humano"])
 

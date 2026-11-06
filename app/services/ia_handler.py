@@ -109,14 +109,20 @@ async def _historico_de_hoje(sessao_id: str, limite: int = 30) -> List[Dict[str,
 # Persona
 # ---------------------------------------------------------------------- #
 
-def _prompt_sistema(nome_cliente: Optional[str]) -> str:
+async def _prompt_sistema(nome_cliente: Optional[str]) -> str:
     tratamento = (
         f"O cliente se chama {nome_cliente.split()[0]}. Use o primeiro nome dele naturalmente, "
         "uma vez ou duas na conversa — não em toda frase."
         if nome_cliente else
         "Você ainda não sabe o nome do cliente. Pode perguntar, de forma leve, se a conversa permitir."
     )
+    from app.core.ficha_loja import para_prompt
+    ficha = await para_prompt()
+
     return f"""Você é a Peper, atendente da YUP! — papelaria e brinquedos em Manhuaçu, Minas Gerais.
+
+{ficha}
+
 
 Você NÃO é um robô de menu. Você conversa como uma atendente boa de balcão: simpática, direta, sem formalidade excessiva e sem enrolação. Português do Brasil, tom mineiro leve.
 
@@ -145,6 +151,22 @@ REGRA QUE NÃO SE QUEBRA — PREÇO E ESTOQUE
 - Se a ferramenta falhar, NÃO adivinhe: chame `chamar_humano`.
 - Se a busca achar muitos itens, peça para o cliente especificar (marca, tamanho, cor) em vez de listar tudo.
 
+NUNCA AFIRME QUE A LOJA NÃO TEM
+O cadastro usa o nome do fornecedor, não o nome que o cliente usa. O cliente
+diz "marcador de texto"; no sistema está "MARCA TEXTO BOSS 70/23 CORES | STABILO".
+A busca já tenta variações sozinha, mas ela pode falhar mesmo assim.
+
+- Busca vazia NÃO quer dizer que a loja não tem. Quer dizer que você não achou.
+- Nunca diga "não temos", "não trabalhamos com" ou "está em falta" com base
+  numa busca vazia. Dizer isso manda embora um cliente de um produto que
+  está na prateleira.
+- Em vez disso: pergunte a marca, o modelo ou para que vai usar, e busque de
+  novo com o que ele responder.
+- Se depois de duas buscas você ainda não achou, chame a equipe. Alguém
+  olhando a prateleira resolve em dez segundos.
+- Só afirme que acabou quando `confirmar_preco_estoque` devolver saldo zero
+  de um produto que você ENCONTROU. Aí sim é falta de estoque de verdade.
+
 PRODUTO x SERVIÇO — o saldo significa coisas diferentes
 - PRODUTO (caderno, cola, brinquedo): saldo 0 quer dizer que acabou. Diga que
   está em falta e ofereça encomendar ou avisar quando chegar.
@@ -159,10 +181,10 @@ QUANDO CHAMAR HUMANO (`chamar_humano`)
 - O cliente pedir para falar com uma pessoa.
 Ao chamar humano, avise o cliente em uma linha que já está passando para a equipe.
 
-A LOJA
-- YUP! — papelaria, brinquedos e serviços de impressão.
-- Você atende dúvida de produto, preço, disponibilidade e informação básica.
-- Serviço de impressão: pergunte quantas páginas, colorido ou preto e branco, e se é frente e verso, antes de passar valor.
+O QUE VOCÊ ATENDE
+- Dúvida de produto, preço, disponibilidade e as informações da ficha acima.
+- Serviço de impressão: pergunte quantas páginas, colorido ou preto e branco,
+  e se é frente e verso — tudo numa mensagem só — antes de passar valor.
 """
 
 
@@ -331,7 +353,31 @@ async def ia_responder(
         return
 
     historico = await _historico_de_hoje(sessao_id)
-    mensagens: List[Dict[str, Any]] = [{"role": "system", "content": _prompt_sistema(nome)}]
+
+    # A ORDEM AQUI É DECISÃO DE CUSTO, não estética.
+    # A OpenAI cobra menos pelo trecho INICIAL do prompt quando ele se repete
+    # entre chamadas, e ficha + regras são idênticas em toda mensagem. Subir
+    # o histórico para o topo "porque é mais importante" quebraria esse
+    # reaproveitamento a cada mensagem — e agora cada mensagem é cobrada.
+    #
+    #   1. ficha + regras      (nunca muda)
+    #   2. conhecimento        (muda pouco)
+    #   3. histórico de hoje   (muda sempre)
+    from app.core.conhecimento import (
+        buscar_similares,
+        para_prompt as conhecimento_prompt,
+    )
+
+    mensagens: List[Dict[str, Any]] = [
+        {"role": "system", "content": await _prompt_sistema(nome)}
+    ]
+
+    exemplos = await buscar_similares(mensagem)
+    if exemplos:
+        mensagens.append({"role": "system", "content": conhecimento_prompt(exemplos)})
+        logger.info("Conhecimento: %d exemplo(s) aplicado(s), melhor=%.2f",
+                    len(exemplos), exemplos[0]["semelhanca"])
+
     mensagens.extend(historico)
     # Se a transcrição não entrou no histórico (áudio salvo antes), garante
     # que a última fala do cliente está presente.
@@ -373,6 +419,13 @@ async def ia_responder(
 
             if await _enviar(telefone, texto):
                 await _registrar_resposta(sessao_id, contato_id, texto)
+                # Resolveu sem humano: vira candidato a conhecimento.
+                # Enfileirar agora é o que torna a curadoria possível depois —
+                # sem registro, não há o que revisar amanhã.
+                from app.core.conhecimento import registrar_candidato
+                await registrar_candidato(
+                    sessao_id=sessao_id, pergunta=mensagem, resposta=texto, origem="ia"
+                )
             return
 
         mensagens.append(resposta)

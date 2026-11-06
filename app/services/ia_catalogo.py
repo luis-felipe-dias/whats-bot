@@ -77,6 +77,92 @@ async def _get(caminho: str, params: Dict[str, Any] | None = None) -> Dict[str, 
 
 
 # ---------------------------------------------------------------------- #
+# Vocabulário: o cliente e o cadastro falam línguas diferentes
+# ---------------------------------------------------------------------- #
+
+# O cadastro da loja nomeia por padrão de fornecedor, não por como o
+# cliente pede. "marcador de texto" não existe em lugar nenhum; o que
+# existe é "MARCA TEXTO BOSS 70/23 CORES ... | STABILO".
+SINONIMOS = {
+    "marcador": "marca texto",
+    "marcadores": "marca texto",
+    "marcatexto": "marca texto",
+    "grifador": "marca texto",
+    "grifa": "marca texto",
+    "canetinha": "caneta hidrografica",
+    "canetinhas": "caneta hidrografica",
+    "hidrocor": "caneta hidrografica",
+    "giz de cera": "giz cera",
+    "lapis de cor": "lapis cor",
+    "apontador": "apontador",
+    "xerox": "copia",
+    "fotocopia": "copia",
+}
+
+# Palavras que o cliente usa para pedir, mas que não descrevem produto.
+RUIDO = {
+    "de", "da", "do", "das", "dos", "para", "pra", "com", "sem", "um", "uma",
+    "uns", "umas", "o", "a", "os", "as", "e", "em", "no", "na", "nos", "nas",
+    "tem", "teria", "tenho", "quero", "queria", "gostaria", "preciso",
+    "procuro", "voces", "vcs", "ai", "aqui", "por", "favor", "se", "qual",
+    "quais", "quanto", "quanta", "custa", "preco", "valor", "me", "ver",
+}
+
+
+def _normalizar(texto: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto or "")
+        if unicodedata.category(c) != "Mn"
+    ).lower().strip()
+
+
+def _variacoes(termo: str) -> List[str]:
+    """
+    Gera tentativas, da mais específica para a mais ampla.
+
+    Por que em cascata: a busca do backend exige que TODOS os tokens
+    apareçam. "marcador de texto stabilo" não acha nada; "texto stabilo"
+    acha dezenas. Em vez de a Peper concluir "não temos" — que foi o que
+    aconteceu com o catálogo cheio de Stabilo em estoque —, ela tenta
+    formas progressivamente mais largas antes de desistir.
+    """
+    bruto = _normalizar(termo)
+    if not bruto:
+        return []
+
+    tentativas: List[str] = [bruto]
+
+    # 1. aplica sinônimos conhecidos da loja
+    traduzido = bruto
+    for de, para in SINONIMOS.items():
+        if de in traduzido:
+            traduzido = traduzido.replace(de, para)
+    if traduzido != bruto:
+        tentativas.append(traduzido)
+
+    # 2. tira as palavras de pedido, fica só o que descreve produto
+    #    (sem repetir token, que a tradução de sinônimo às vezes duplica)
+    uteis: List[str] = []
+    for t in traduzido.split():
+        if t not in RUIDO and len(t) > 1 and t not in uteis:
+            uteis.append(t)
+    if uteis and " ".join(uteis) not in tentativas:
+        tentativas.append(" ".join(uteis))
+
+    # 3. últimas cartadas: as PRIMEIRAS palavras, não as mais longas.
+    #    Em português o cliente diz o produto antes da marca — "caderno
+    #    tilibra", "marca texto stabilo". Escolher pela maior palavra
+    #    descartava justamente a marca ("tilibra" perdia para "materias").
+    if len(uteis) > 2 and " ".join(uteis[:2]) not in tentativas:
+        tentativas.append(" ".join(uteis[:2]))
+    if len(uteis) > 1 and uteis[0] not in tentativas:
+        tentativas.append(uteis[0])
+
+    return tentativas
+
+
+# ---------------------------------------------------------------------- #
 # Ferramenta 1 — buscar (espelho, 0 chamadas ao Olist)
 # ---------------------------------------------------------------------- #
 
@@ -94,23 +180,31 @@ async def buscar_produto(termo: str, limite: int = 5) -> Dict[str, Any]:
     dizer é a IA, orientada pelo prompt: saldo zero em produto é "acabou",
     saldo zero em serviço não quer dizer nada.
     """
-    dados = await _get(
-        "/estoque/produtos/buscar",
-        {"termo": termo, "limite": limite},
-    )
-    if not dados or not dados.get("sucesso"):
-        return {"ok": False, "motivo": "catalogo_indisponivel", "produtos": []}
+    for tentativa, termo_usado in enumerate(_variacoes(termo), start=1):
+        dados = await _get(
+            "/estoque/produtos/buscar",
+            {"termo": termo_usado, "limite": limite},
+        )
+        if dados is None:
+            return {"ok": False, "motivo": "catalogo_indisponivel", "produtos": []}
 
-    produtos: List[Dict[str, Any]] = [
-        _resumir(codigo, p) for codigo, p in (dados.get("produtos") or {}).items()
-    ]
-    return {
-        "ok": True,
-        "total_encontrados": dados.get("total_encontrados", len(produtos)),
-        # Mostrados = os primeiros `limite`. Se achou 300, a IA tem que
-        # pedir para o cliente refinar, não despejar lista no WhatsApp.
-        "produtos": produtos[:limite],
-    }
+        produtos: List[Dict[str, Any]] = [
+            _resumir(codigo, p) for codigo, p in (dados.get("produtos") or {}).items()
+        ]
+        if produtos:
+            return {
+                "ok": True,
+                "termo_usado": termo_usado,
+                "tentativa": tentativa,
+                "total_encontrados": dados.get("total_encontrados", len(produtos)),
+                # Mostrados = os primeiros `limite`. Se achou 300, a IA tem
+                # que pedir para o cliente refinar, não despejar lista.
+                "produtos": produtos[:limite],
+            }
+
+    return {"ok": True, "total_encontrados": 0, "produtos": [],
+            "observacao": "Nada encontrado nem com variações do termo. "
+                          "Pergunte a marca ou o tipo exato antes de afirmar que não tem."}
 
 
 # ---------------------------------------------------------------------- #
@@ -132,9 +226,14 @@ async def confirmar_preco_estoque(codigo: str) -> Dict[str, Any]:
         p = tempo_real.get("produto") or {}
         return {"ok": True, "fonte": "tempo_real", **_resumir(codigo, p)}
 
+    # ATENÇÃO AO FORMATO: /estoque/produtos/{codigo} devolve o produto
+    # DIRETO, sem envelope {"sucesso": ...}. A primeira versão checava
+    # `sucesso` e por isso NUNCA confirmava preço — a Peper dizia "não
+    # consegui confirmar o preço agora" para todo produto que existia.
     espelho = await _get(f"/estoque/produtos/{codigo}")
-    if espelho and espelho.get("sucesso"):
-        p = espelho.get("produto") or {}
-        return {"ok": True, "fonte": "espelho", **_resumir(codigo, p)}
+    if espelho:
+        p = espelho.get("produto") if "produto" in espelho else espelho
+        if p and (p.get("descricao") or p.get("codigo")):
+            return {"ok": True, "fonte": "espelho", **_resumir(codigo, p)}
 
     return {"ok": False, "motivo": "nao_consegui_confirmar", "codigo": codigo}

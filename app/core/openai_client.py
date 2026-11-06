@@ -113,6 +113,38 @@ class OpenAIClient:
             return {}
 
     # ------------------------------------------------------------------ #
+    # Embeddings (base de conhecimento)
+    # ------------------------------------------------------------------ #
+
+    async def embedding(self, texto: str) -> list:
+        """
+        Vetor de um texto, para medir semelhança entre a pergunta do cliente
+        e as perguntas já respondidas e aprovadas.
+
+        É de longe a chamada mais barata da OpenAI — ordens de grandeza
+        abaixo de uma resposta de chat. Por isso dá para rodar em toda
+        mensagem sem pensar no custo.
+
+        Devolve [] em qualquer falha; quem chama trata como "sem base" e
+        segue com o prompt normal, em vez de deixar o cliente sem resposta.
+        """
+        if not self.configurado or not (texto or "").strip():
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.post(
+                    f"{API_BASE}/embeddings",
+                    json={"model": settings.openai_model_embedding, "input": texto[:2000]},
+                    headers=self._headers,
+                )
+            if r.status_code == 200:
+                return (r.json().get("data") or [{}])[0].get("embedding", []) or []
+            logger.error("Embedding recusado (%s).", r.status_code)
+        except Exception as e:  # noqa: BLE001
+            logger.error("Falha no embedding: %s", e)
+        return []
+
+    # ------------------------------------------------------------------ #
     # Áudio
     # ------------------------------------------------------------------ #
 
