@@ -314,6 +314,24 @@ async def process_webhook_message(chat_lid: str, telefone: str, identificador: s
                 await sessao_service.cliente_enviou_mensagem(sessao["id"])
                 return
 
+            # ---------------------------------------------------------
+            # FAIXA IA (MVP) — antes da máquina de estados.
+            # Só entra para os telefones de IA_NUMEROS com IA_ENABLED=true.
+            # Para todo o resto, o fluxo abaixo continua idêntico.
+            # ---------------------------------------------------------
+            from app.services.ia_handler import ia_deve_atender, ia_responder
+            if ia_deve_atender(telefone):
+                await ia_responder(
+                    sessao=sessao,
+                    contato=contato,
+                    telefone=telefone,
+                    mensagem=mensagem,
+                    tipo=tipo,
+                    file_url=file_url,
+                    mime_type=mime_type,
+                )
+                return
+
             # PROCESSAR RESPOSTA DO BOT
             from app.core.state_machine import StateMachine
             sm = StateMachine()
