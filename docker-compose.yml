@@ -1,0 +1,19 @@
+# Não é necessário Docker para MongoDB Atlas
+# Apenas o container da aplicação
+version: '3.8'
+
+services:
+  yup-api:
+    build: .
+    container_name: yup_api
+    restart: always
+    ports:
+      - "8000:8000"
+    # Credenciais reais (senha do Mongo, tokens da Z-API) ficam SÓ no .env
+    # (que não vai pro Git). Antes elas estavam duplicadas aqui em texto
+    # puro - se este arquivo fosse commitado, vazava senha e token.
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

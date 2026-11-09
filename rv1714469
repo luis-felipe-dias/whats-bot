@@ -1,0 +1,93 @@
+[0;1;32m●[0m srv1714469
+    State: [0;1;32mrunning[0m
+    Units: 456 loaded (incl. loaded aliases)
+     Jobs: 0 queued
+   Failed: 0 units
+    Since: Fri 2026-05-29 13:27:54 UTC; 1 week 3 days ago
+  systemd: 255.4-1ubuntu8.15
+   CGroup: /
+           ├─init.scope
+           │ └─[0;38;5;245m1 /usr/lib/systemd/systemd --system --deserialize=76[0m
+           ├─system.slice
+           │ ├─ModemManager.service
+           │ │ └─[0;38;5;245m38395 /usr/sbin/ModemManager[0m
+           │ ├─containerd.service
+           │ │ └─[0;38;5;245m3501 /usr/bin/containerd[0m
+           │ ├─cron.service
+           │ │ └─[0;38;5;245m790 /usr/sbin/cron -f -P[0m
+           │ ├─dbus.service
+           │ │ └─[0;38;5;245m791 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only[0m
+           │ ├─docker.service
+           │ │ └─[0;38;5;245m3635 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock[0m
+           │ ├─monarx-agent.service
+           │ │ └─[0;38;5;245m2581 /usr/bin/monarx-agent[0m
+           │ ├─multipathd.service
+           │ │ └─[0;38;5;245m38351 /sbin/multipathd -d -s[0m
+           │ ├─nginx.service
+           │ │ ├─[0;38;5;245m38049 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"[0m
+           │ │ ├─[0;38;5;245m38052 "nginx: worker process"[0m
+           │ │ └─[0;38;5;245m38053 "nginx: worker process"[0m
+           │ ├─polkit.service
+           │ │ └─[0;38;5;245m38354 /usr/lib/polkit-1/polkitd --no-debug[0m
+           │ ├─qemu-guest-agent.service
+           │ │ └─[0;38;5;245m819 /usr/sbin/qemu-ga[0m
+           │ ├─rsyslog.service
+           │ │ └─[0;38;5;245m38379 /usr/sbin/rsyslogd -n -iNONE[0m
+           │ ├─ssh.service
+           │ │ └─[0;38;5;245m1082 "sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups"[0m
+           │ ├─system-getty.slice
+           │ │ └─getty@tty1.service
+           │ │   └─[0;38;5;245m1037 /sbin/agetty -o "-p -- \\u" --noclear - linux[0m
+           │ ├─system-serial\x2dgetty.slice
+           │ │ └─serial-getty@ttyS0.service
+           │ │   └─[0;38;5;245m1033 /sbin/agetty -o "-p -- \\u" --keep-baud 115200,57600,38400,9600 - vt220[0m
+           │ ├─systemd-journald.service
+           │ │ └─[0;38;5;245m38335 /usr/lib/systemd/systemd-journald[0m
+           │ ├─systemd-logind.service
+           │ │ └─[0;38;5;245m847 /usr/lib/systemd/systemd-logind[0m
+           │ ├─systemd-networkd.service
+           │ │ └─[0;38;5;245m38399 /usr/lib/systemd/systemd-networkd[0m
+           │ ├─systemd-resolved.service
+           │ │ └─[0;38;5;245m38366 /usr/lib/systemd/systemd-resolved[0m
+           │ ├─systemd-timesyncd.service
+           │ │ └─[0;38;5;245m38346 /usr/lib/systemd/systemd-timesyncd[0m
+           │ ├─systemd-udevd.service
+           │ │ └─udev
+           │ │   └─[0;38;5;245m38376 /usr/lib/systemd/systemd-udevd[0m
+           │ ├─udisks2.service
+           │ │ └─[0;38;5;245m38348 /usr/libexec/udisks2/udisksd[0m
+           │ └─unattended-upgrades.service
+           │   └─[0;38;5;245m912 /usr/bin/python3 /usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal[0m
+           └─user.slice
+             └─user-0.slice
+               ├─session-1799.scope
+               │ ├─[0;38;5;245m61323 "sshd: root@notty"[0m
+               │ └─[0;38;5;245m61424 /usr/lib/openssh/sftp-server[0m
+               ├─session-1808.scope
+               │ ├─[0;38;5;245m61772 "sshd: root@pts/0"[0m
+               │ ├─[0;38;5;245m61831 -bash[0m
+               │ ├─[0;38;5;245m61862 python run.py[0m
+               │ ├─[0;38;5;245m61863 /automacao-yup/whats-bot/venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001[0m
+               │ ├─[0;38;5;245m61864 /automacao-yup/whats-bot/venv/bin/python -c "from multiprocessing.resource_tracker import main;main(4)"[0m
+               │ └─[0;38;5;245m61865 /automacao-yup/whats-bot/venv/bin/python -c "from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=5, pipe_handle=7)" --multiprocessing-fork[0m
+               ├─session-1810.scope
+               │ ├─[0;38;5;245m61879 "sshd: root@pts/1"[0m
+               │ └─[0;38;5;245m61940 -bash[0m
+               ├─session-1812.scope
+               │ ├─[0;38;5;245m62008 "sshd: root@notty"[0m
+               │ └─[0;38;5;245m62109 /usr/lib/openssh/sftp-server[0m
+               ├─session-1819.scope
+               │ ├─[0;38;5;245m62205 "sshd: root@pts/2"[0m
+               │ ├─[0;38;5;245m62264 -bash[0m
+               │ ├─[0;38;5;245m62296 sudo systemctl status[0m
+               │ ├─[0;38;5;245m62297 sudo systemctl status[0m
+               │ ├─[0;38;5;245m62298 systemctl status[0m
+               │ └─[0;38;5;245m62299 pager[0m
+               ├─session-65.scope
+               │ ├─[0;38;5;245m20880 SCREEN -S api[0m
+               │ ├─[0;38;5;245m20881 /bin/bash[0m
+               │ └─[0;38;5;245m20888 /automacao-yup/backend-yup/venv/bin/python3 /automacao-yup/backend-yup/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000[0m
+               └─user@0.service
+                 └─init.scope
+                   ├─[0;38;5;245m11303 /usr/lib/systemd/systemd --user[0m
+                   └─[0;38;5;245m11305 "(sd-pam)"[0m

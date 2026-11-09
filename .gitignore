@@ -1,0 +1,17 @@
+# Segredos — nunca versionar
+.env
+.env.*
+!.env.example
+
+# Ambiente virtual: recriado com pip install -r requirements.txt
+venv/
+.venv/
+
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+
+# Logs e temporários
+logs/
+*.log
+.DS_Store
