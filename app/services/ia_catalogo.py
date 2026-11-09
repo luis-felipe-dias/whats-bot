@@ -211,6 +211,23 @@ async def buscar_produto(termo: str, limite: int = 5) -> Dict[str, Any]:
 # Ferramenta 2 — confirmar (tempo real)
 # ---------------------------------------------------------------------- #
 
+def _codigo_plausivel(codigo: str) -> bool:
+    """
+    Código de produto do Olist não tem espaço nem sublinhado.
+
+    Em 06/11/2026 a IA, sem achar impressão na busca, inventou o código
+    `impressao_colorida` e pediu o preço dele. Duas chamadas desperdiçadas,
+    dois 404 e um "não consegui confirmar o preço" para o cliente.
+
+    Barrar aqui é melhor que deixar o backend responder 404: a mensagem de
+    erro pode dizer ao modelo exatamente o que fazer em vez de só falhar.
+    """
+    c = (codigo or "").strip()
+    if not c or len(c) > 24:
+        return False
+    return not any(ch in c for ch in (" ", "_", "/", "\\", "\t"))
+
+
 async def confirmar_preco_estoque(codigo: str) -> Dict[str, Any]:
     """
     Preço e saldo que PODEM ser falados para o cliente.
@@ -221,6 +238,17 @@ async def confirmar_preco_estoque(codigo: str) -> Dict[str, Any]:
     quando a fonte não for tempo real. Melhor um "confirmo já" do que um
     preço errado dito com convicção.
     """
+    if not _codigo_plausivel(codigo):
+        return {
+            "ok": False,
+            "motivo": "codigo_inventado",
+            "instrucao": (
+                f"'{codigo}' não é um código de produto. Códigos vêm do campo "
+                "`codigo` do resultado de buscar_produto. Busque o produto "
+                "primeiro e use o código que vier de lá."
+            ),
+        }
+
     tempo_real = await _get(f"/estoque/produtos/{codigo}/tempo-real")
     if tempo_real and tempo_real.get("sucesso"):
         p = tempo_real.get("produto") or {}
@@ -236,4 +264,13 @@ async def confirmar_preco_estoque(codigo: str) -> Dict[str, Any]:
         if p and (p.get("descricao") or p.get("codigo")):
             return {"ok": True, "fonte": "espelho", **_resumir(codigo, p)}
 
-    return {"ok": False, "motivo": "nao_consegui_confirmar", "codigo": codigo}
+    return {
+        "ok": False,
+        "motivo": "codigo_nao_encontrado",
+        "codigo": codigo,
+        "instrucao": (
+            "Esse código não existe no catálogo. NÃO diga ao cliente que não "
+            "conseguiu confirmar o preço: busque o produto de novo com outras "
+            "palavras e use o código que a busca devolver."
+        ),
+    }
