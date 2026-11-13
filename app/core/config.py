@@ -52,8 +52,19 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_model_audio: str = "whisper-1"
     openai_model_embedding: str = "text-embedding-3-small"
-    openai_temperature: float = 0.6
+    # 0.4, não 0.6. Atendimento não é escrita criativa: a Peper precisa
+    # repetir a mesma resposta certa para a mesma pergunta. Temperatura alta
+    # é o que faz ela "variar" um dado da ficha ou reformular uma regra até
+    # ela deixar de ser a regra.
+    openai_temperature: float = 0.4
     openai_max_tokens: int = 350
+
+    # Filtro de palavras proibidas na resposta PRONTA, antes de enviar.
+    # Ligado significa que resposta com termo bloqueado NÃO sai e a conversa
+    # vira chamada de equipe. É mudança de comportamento em produção: se a
+    # lista ficar mal preenchida, o efeito é transferência demais, não texto
+    # errado — por isso o padrão é ligado, e desligar é uma linha no .env.
+    filtro_palavras_ativo: bool = True
 
     # Backend de estoque (meu_projeto). O bot consulta produto AQUI,
     # nunca direto no Olist — um dono do token, um limitador.

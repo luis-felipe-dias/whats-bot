@@ -37,7 +37,7 @@ _cache: Optional[Dict[str, Any]] = None
 # CONFIRMADO: endereço, telefone, site e redes vêm do manual da marca.
 # A CONFIRMAR está marcado como None e NÃO entra no prompt.
 FICHA_PADRAO: Dict[str, Any] = {
-    "nome": "YUP!",
+    "nome": "Yup",
     "o_que_e": "papelaria, brinquedos e presentes",
     "cidade": "Manhuaçu, Minas Gerais",
     "endereco": "Avenida Salime Nacif, 222, Baixada, Manhuaçu/MG, CEP 36.902-051",
@@ -47,14 +47,23 @@ FICHA_PADRAO: Dict[str, Any] = {
     "instagram": "@papelaria.yup",
     "tiktok": "@papelaria.yup",
 
-    "horario_semana": "segunda a sexta, a partir das 9h",
+    "horario_semana": "segunda a sexta, das 9h às 18h30",
     "horario_sabado": "sábado, das 9h às 13h",
     "horario_domingo": "domingo não abre",
 
+    # CONFIRMADO pelo Pablo em 13/11/2026.
+    "pagamento": "dinheiro, Pix e cartão de débito e crédito",
+    "entrega": ("em Manhuaçu, por motoboy terceirizado; para outras cidades, "
+                "por transportadoras parceiras"),
+
     # None = a Peper NÃO fala disso e chama a equipe quando perguntarem.
-    "pagamento": None,
+    #
+    # `trocas` fica None DE PROPÓSITO: a política ainda não existe. Preencher
+    # com um palpite ("7 dias com nota") seria pior que o silêncio — vira
+    # promessa que a loja não se comprometeu a cumprir, feita a um cliente
+    # que vai cobrar. Enquanto está None, a Peper chama a equipe, que é a
+    # resposta honesta para uma regra que ninguém definiu.
     "pix": None,
-    "entrega": None,
     "trocas": None,
     "encomenda": None,
     "estacionamento": None,
